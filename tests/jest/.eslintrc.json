@@ -1,0 +1,10 @@
+{
+	"env": {
+		"jest": true,
+		"node": true,
+		"commonjs": true
+	},
+	"rules": {
+		"no-underscore-dangle": "off"
+	}
+}

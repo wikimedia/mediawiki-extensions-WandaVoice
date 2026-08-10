@@ -1,0 +1,8 @@
+node_modules/
+vendor/
+coverage/
+composer.lock
+package-lock.json
+.eslintcache
+*.cache
+.DS_Store

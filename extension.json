@@ -1,0 +1,194 @@
+{
+	"name": "WandaVoice",
+	"version": "0.1.1",
+	"author": [
+		"Sanjai Siddharthan"
+	],
+	"url": "https://www.mediawiki.org/wiki/Extension:WandaVoice",
+	"descriptionmsg": "wandavoice-desc",
+	"license-name": "GPL-2.0-or-later",
+	"type": "other",
+	"requires": {
+		"MediaWiki": ">= 1.42.0",
+		"extensions": {
+			"Wanda": "*"
+		}
+	},
+	"MessagesDirs": {
+		"WandaVoice": [
+			"i18n"
+		]
+	},
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\WandaVoice\\": "includes/"
+	},
+	"APIModules": {
+		"wandavoice": "MediaWiki\\Extension\\WandaVoice\\ApiWandaVoice",
+		"wandavoicetranscribe": "MediaWiki\\Extension\\WandaVoice\\ApiWandaVoiceTranscribe"
+	},
+	"ResourceModules": {
+		"ext.wandavoice": {
+			"class": "MediaWiki\\ResourceLoader\\CodexModule",
+			"packageFiles": [
+				"resources/init.js",
+				"resources/voiceRecognition.js",
+				"resources/serverRecognition.js",
+				"resources/commandProcessor.js",
+				"resources/commandExecutor.js",
+				"resources/audioFeedback.js",
+				"resources/components/VoicePanel.vue"
+			],
+			"styles": [
+				"resources/styles/voice.css"
+			],
+			"dependencies": [
+				"mediawiki.util",
+				"mediawiki.api",
+				"vue"
+			],
+			"codexComponents": [
+				"CdxButton",
+				"CdxProgressBar",
+				"CdxMessage"
+			],
+			"messages": [
+				"wandavoice-panel-title",
+				"wandavoice-button-aria-start",
+				"wandavoice-button-aria-stop",
+				"wandavoice-status-idle",
+				"wandavoice-status-wake",
+				"wandavoice-status-listening",
+				"wandavoice-status-processing",
+				"wandavoice-status-dictation",
+				"wandavoice-status-unsupported",
+				"wandavoice-transcript-label",
+				"wandavoice-thinking-title",
+				"wandavoice-help-button",
+				"wandavoice-help-title",
+				"wandavoice-help-commands",
+				"wandavoice-close",
+				"wandavoice-error-nosupport",
+				"wandavoice-error-mic-denied",
+				"wandavoice-error-generic",
+				"wandavoice-error-unknown",
+				"wandavoice-error-noeditor",
+				"wandavoice-feedback-listening-on",
+				"wandavoice-feedback-listening-off",
+				"wandavoice-feedback-wake",
+				"wandavoice-feedback-navigating",
+				"wandavoice-feedback-searching",
+				"wandavoice-feedback-editing",
+				"wandavoice-feedback-editpage",
+				"wandavoice-feedback-history",
+				"wandavoice-feedback-inserted",
+				"wandavoice-feedback-formatted",
+				"wandavoice-feedback-saved",
+				"wandavoice-feedback-previewing",
+				"wandavoice-feedback-undone",
+				"wandavoice-feedback-nothing-to-undo",
+				"wandavoice-feedback-cancelled",
+				"wandavoice-feedback-dictation-on",
+				"wandavoice-feedback-dictation-off",
+				"wandavoice-feedback-resume"
+			],
+			"targets": [
+				"desktop",
+				"mobile"
+			]
+		}
+	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "",
+		"remoteExtPath": "WandaVoice"
+	},
+	"Hooks": {
+		"BeforePageDisplay": "MediaWiki\\Extension\\WandaVoice\\Hooks\\VoiceHooks::onBeforePageDisplay"
+	},
+	"config": {
+		"WandaVoiceEnabled": {
+			"description": "Master switch for the WandaVoice extension.",
+			"value": true
+		},
+		"WandaVoiceWakePhrase": {
+			"description": "Wake phrase that activates command capture while passively listening. Set to an empty string to disable wake phrase detection (push-to-talk only).",
+			"value": "wanda"
+		},
+		"WandaVoiceWakeSensitivity": {
+			"description": "Fuzzy-matching sensitivity for wake phrase detection, between 0 (match anything vaguely similar) and 1 (exact match only).",
+			"value": 0.7
+		},
+		"WandaVoiceContinuousMode": {
+			"description": "Keep listening for the wake phrase after a command completes.",
+			"value": true
+		},
+		"WandaVoiceLanguage": {
+			"description": "Primary BCP 47 language tag for speech recognition (e.g. \"en-US\"). Empty string uses the wiki content language.",
+			"value": ""
+		},
+		"WandaVoiceFallbackLanguages": {
+			"description": "Fallback language tags tried when the primary language is not supported by the browser speech engine (e.g. accent variants such as [ \"en-GB\", \"en-AU\" ]).",
+			"value": []
+		},
+		"WandaVoiceRecognitionEngine": {
+			"description": "Speech recognition engine: 'auto' (browser-native when available, otherwise the server engine), 'browser' (Web Speech API only) or 'server' (MediaRecorder plus server-side transcription only).",
+			"value": "auto"
+		},
+		"WandaVoiceSTTEndpoint": {
+			"description": "Whisper-compatible speech-to-text endpoint (OpenAI audio/transcriptions contract) used by the server recognition engine, e.g. https://api.openai.com/v1/audio/transcriptions or a self-hosted LocalAI/faster-whisper URL. Empty disables the server engine.",
+			"value": ""
+		},
+		"WandaVoiceSTTApiKey": {
+			"description": "API key sent as a Bearer token to the speech-to-text endpoint. Leave empty for unauthenticated self-hosted servers.",
+			"value": ""
+		},
+		"WandaVoiceSTTModel": {
+			"description": "Model name passed to the speech-to-text endpoint.",
+			"value": "whisper-1"
+		},
+		"WandaVoiceSTTTimeout": {
+			"description": "Timeout in seconds for speech-to-text requests.",
+			"value": 30
+		},
+		"WandaVoiceMaxAudioSize": {
+			"description": "Maximum accepted audio upload size in bytes for the server recognition engine.",
+			"value": 2097152
+		},
+		"WandaVoiceUseLLM": {
+			"description": "Use Wanda's LLM for intent recognition of complex or compound commands. When false, only the built-in local command grammar is available.",
+			"value": true
+		},
+		"WandaVoiceShowThinking": {
+			"description": "Show the command interpretation steps in the voice panel.",
+			"value": false
+		},
+		"WandaVoiceAudioFeedback": {
+			"description": "Speak confirmations of completed actions using the browser speech synthesis engine.",
+			"value": true
+		},
+		"WandaVoiceVisualIndicators": {
+			"description": "Show the visual status panel with recording indicators and transcripts.",
+			"value": true
+		},
+		"WandaVoiceHapticFeedback": {
+			"description": "Vibrate on recording state transitions on devices that support it.",
+			"value": true
+		},
+		"WandaVoiceNamespaces": {
+			"description": "Namespace IDs where the voice interface is available. An empty array enables it everywhere.",
+			"value": []
+		},
+		"WandaVoiceMobileEnabled": {
+			"description": "Enable the voice interface in the mobile (MobileFrontend) view.",
+			"value": true
+		},
+		"WandaVoiceCustomCommands": {
+			"description": "Map of custom spoken shortcut phrases to the command text they expand to, e.g. { \"quick save\": \"save changes with summary minor edit\" }.",
+			"value": {}
+		},
+		"WandaVoiceOfflineCommands": {
+			"description": "Commands guaranteed to be handled by the local grammar without contacting the LLM.",
+			"value": [ "save", "preview", "undo", "cancel", "stop listening", "help" ]
+		}
+	},
+	"manifest_version": 2
+}
