@@ -148,6 +148,68 @@ class CommandProcessor {
 		const control = command.replace( /[.,!?;:]+$/, '' ).trim();
 		let m;
 
+		m = command.match( /^(?:open|show|view|go to)(?: my)? watchlist$/ );
+		if ( m ) {
+			return this.simple( 'navigate', {
+				target: 'Special:Watchlist',
+				url: mw.util.getUrl( 'Special:Watchlist' )
+			}, mw.message( 'wandavoice-feedback-navigating', 'Special:Watchlist' ).text() );
+		}
+
+		m = command.match( /^(?:open|show|view|go to) recent changes$/ );
+		if ( m ) {
+			return this.simple( 'navigate', {
+				target: 'Special:RecentChanges',
+				url: mw.util.getUrl( 'Special:RecentChanges' )
+			}, mw.message( 'wandavoice-feedback-navigating', 'Special:RecentChanges' ).text() );
+		}
+
+		m = command.match( /^(?:open|show|view|go to)(?: my)? contributions$/ );
+		if ( m ) {
+			return this.simple( 'navigate', {
+				target: 'Special:Contributions',
+				url: mw.util.getUrl( 'Special:Contributions' )
+			}, mw.message( 'wandavoice-feedback-navigating', 'Special:Contributions' ).text() );
+		}
+
+		m = command.match( /^(?:open|show|view|go to) special pages$/ );
+		if ( m ) {
+			return this.simple( 'navigate', {
+				target: 'Special:SpecialPages',
+				url: mw.util.getUrl( 'Special:SpecialPages' )
+			}, mw.message( 'wandavoice-feedback-navigating', 'Special:SpecialPages' ).text() );
+		}
+
+		m = command.match( /^(?:open|show|view|go to)(?: a)? random page$/ );
+		if ( m ) {
+			return this.simple( 'navigate', {
+				target: 'Special:Random',
+				url: mw.util.getUrl( 'Special:Random' )
+			}, mw.message( 'wandavoice-feedback-navigating', 'Special:Random' ).text() );
+		}
+
+		m = command.match( /^(?:open|show|view|go to)(?: the)? (?:talk|discussion)(?: page)?$/ );
+		if ( m ) {
+			const page = mw.config.get( 'wgPageName' ) || '';
+			let talkPage = page;
+			if ( page ) {
+				const parts = page.split( ':' );
+				if ( parts.length > 1 && /^talk$/i.test( parts[ 0 ] ) ) {
+					talkPage = parts.slice( 1 ).join( ':' );
+				} else if ( parts.length > 1 && /_talk$/i.test( parts[ 0 ] ) ) {
+					talkPage = page;
+				} else {
+					talkPage = 'Talk:' + page;
+				}
+			} else {
+				talkPage = 'Talk:Main_Page';
+			}
+			return this.simple( 'navigate', {
+				target: talkPage,
+				url: mw.util.getUrl( talkPage )
+			}, mw.message( 'wandavoice-feedback-navigating', talkPage ).text() );
+		}
+
 		m = command.match( /^(?:navigate|go|take me|open page|visit|jump)(?: to)? (?:the )?(.+)$/i ) ||
 			command.match( /^open (?:the )?page (.+)$/i );
 		if ( m ) {

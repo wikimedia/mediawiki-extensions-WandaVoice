@@ -39,7 +39,7 @@
 	"wandavoice-thinking-title": "Interpretation steps",
 	"wandavoice-help-button": "Help",
 	"wandavoice-help-title": "Example voice commands",
-	"wandavoice-help-commands": "\"Navigate to Main Page\" · \"Search for quantum physics\" · \"Open history\" · \"Edit section 2\" · \"Make this bold\" · \"Create heading Ancient Rome\" · \"Insert link to Paris\" · \"Add citation needed\" · \"Create bullet point First item\" · \"Start dictation\" · \"Save changes\" · \"Undo\" · \"Stop listening\"",
+	"wandavoice-help-commands": "\"Navigate to Main Page\" · \"Go to watchlist\" · \"View recent changes\" · \"Go to talk page\" · \"Search for quantum physics\" · \"Open history\" · \"Edit section 2\" · \"Make this bold\" · \"Create heading Ancient Rome\" · \"Insert link to Paris\" · \"Add citation needed\" · \"Create bullet point First item\" · \"Start dictation\" · \"Save changes\" · \"Undo\" · \"Stop listening\"",
 	"wandavoice-close": "Close",
 	"wandavoice-capture-button": "Speak a command",
 	"wandavoice-error-network": "The browser's speech service could not be reached. Voice control has stopped. Check your connection and try again. If you are using an embedded browser, try standalone Chrome or Safari, or ask your wiki administrator about server-side speech recognition.",

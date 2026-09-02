@@ -589,9 +589,43 @@ describe( 'dictation mode', () => {
 		expect( exit.actions[ 0 ].type ).toBe( 'stop_dictation' );
 		expect( processor.dictationMode ).toBe( false );
 	} );
+
+	it( 'parses quick jump navigation shortcuts', async () => {
+		const processor = makeProcessor();
+
+		let res = await processor.process( 'go to my watchlist' );
+		expect( res.actions[ 0 ].type ).toBe( 'navigate' );
+		expect( res.actions[ 0 ].url ).toBe( '/wiki/Special:Watchlist' );
+
+		res = await processor.process( 'view recent changes' );
+		expect( res.actions[ 0 ].type ).toBe( 'navigate' );
+		expect( res.actions[ 0 ].url ).toBe( '/wiki/Special:RecentChanges' );
+
+		res = await processor.process( 'open my contributions' );
+		expect( res.actions[ 0 ].type ).toBe( 'navigate' );
+		expect( res.actions[ 0 ].url ).toBe( '/wiki/Special:Contributions' );
+
+		res = await processor.process( 'go to special pages' );
+		expect( res.actions[ 0 ].type ).toBe( 'navigate' );
+		expect( res.actions[ 0 ].url ).toBe( '/wiki/Special:SpecialPages' );
+
+		res = await processor.process( 'open random page' );
+		expect( res.actions[ 0 ].type ).toBe( 'navigate' );
+		expect( res.actions[ 0 ].url ).toBe( '/wiki/Special:Random' );
+
+		res = await processor.process( 'go to talk page' );
+		expect( res.actions[ 0 ].type ).toBe( 'navigate' );
+		expect( res.actions[ 0 ].url ).toBe( '/wiki/Talk:Test_Page' );
+	} );
 } );
 
 describe( 'LLM fallback', () => {
+	const originalApiPost = global.__apiPost;
+
+	afterEach( () => {
+		global.__apiPost = originalApiPost;
+	} );
+
 	it( 'sends compound commands to the wandavoice API', async () => {
 		const posts = [];
 		global.__apiPost = ( params ) => {
