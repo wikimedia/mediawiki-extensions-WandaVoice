@@ -24,7 +24,6 @@ class ApiWandaVoiceTest extends MediaWikiUnitTestCase {
 		$class = new ReflectionClass( ApiWandaVoice::class );
 		$api = $class->newInstanceWithoutConstructor();
 		$method = $class->getMethod( $name );
-		$method->setAccessible( true );
 		return $method->invokeArgs( $api, $args );
 	}
 

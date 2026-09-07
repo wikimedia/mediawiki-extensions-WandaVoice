@@ -80,7 +80,10 @@ class VoiceHooks {
 			]
 		] );
 
-		$out->addHeadItem( 'wandavoice-definecomponent', '<script>window.defineComponent = window.defineComponent || function ( obj ) { return obj; };</script>' );
+		$out->addHeadItem(
+			'wandavoice-definecomponent',
+			'<script>window.defineComponent = window.defineComponent || function ( obj ) { return obj; };</script>'
+		);
 		$out->addModules( 'ext.wandavoice' );
 	}
 }

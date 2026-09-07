@@ -1,0 +1,8 @@
+[
+	{
+		"@note": "Hack! We 'opt out' of performance budgeting for this (dynamically loaded) module, and all its dependencies.",
+		"resourceModule": "ext.wandavoice",
+		"maxSize": null,
+		"ignoreDependencies": true
+	}
+]
