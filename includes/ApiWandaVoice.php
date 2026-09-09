@@ -139,8 +139,7 @@ class ApiWandaVoice extends ApiBase {
 				'format' => 'json',
 				'message' => $command,
 				'customprompt' => $this->buildIntentPrompt( $context, $mode, $lang ),
-				'skipesquery' => true,
-				'usepublicknowledge' => true,
+				'sources' => [ 'publicknowledge' ],
 				'temperature' => '0',
 				'maxtokens' => 2000
 			],
@@ -195,8 +194,7 @@ class ApiWandaVoice extends ApiBase {
 				'format' => 'json',
 				'message' => $transcript,
 				'customprompt' => $prompt,
-				'skipesquery' => true,
-				'usepublicknowledge' => true,
+				'sources' => [ 'publicknowledge' ],
 				'temperature' => '0',
 				'maxtokens' => 2000
 			],
