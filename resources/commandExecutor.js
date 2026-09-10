@@ -82,6 +82,8 @@ class CommandExecutor {
 	 * @param {Object} action
 	 */
 	executeLocal( action ) {
+		const veSurface = this.getVeSurface();
+
 		switch ( action.type ) {
 			case 'insert_text':
 			case 'heading':
@@ -93,25 +95,61 @@ class CommandExecutor {
 			case 'image':
 			case 'reference':
 			case 'category':
-				this.insertWikitext( action );
+				if ( veSurface ) {
+					this.insertWikitextVE( veSurface, action );
+				} else {
+					this.insertWikitext( action );
+				}
 				break;
 			case 'format':
-				this.applyFormat( action );
+				if ( veSurface ) {
+					this.applyFormatVE( veSurface, action );
+				} else {
+					this.applyFormat( action );
+				}
 				break;
 			case 'save':
-				this.save( action );
+				if ( veSurface ) {
+					this.saveVE( action );
+				} else {
+					this.save( action );
+				}
 				break;
 			case 'preview':
-				this.preview( action );
+				if ( veSurface ) {
+					this.previewVE( action );
+				} else {
+					this.preview( action );
+				}
 				break;
 			case 'undo':
-				this.undo( action );
+				if ( veSurface ) {
+					this.undoVE( veSurface, action );
+				} else {
+					this.undo( action );
+				}
 				break;
 			default:
 				// cancel / start_dictation / stop_dictation / unknown types
 				// are handled by the caller; just announce them.
 				this.handlers.onFeedback( action.feedback || '' );
 		}
+	}
+
+	/**
+	 * @return {Object|null} The VisualEditor surface object if active, or null
+	 */
+	getVeSurface() {
+		if ( window.ve && window.ve.init && window.ve.init.target ) {
+			const target = window.ve.init.target;
+			if ( typeof target.getSurface === 'function' ) {
+				const surface = target.getSurface();
+				if ( surface && surface.getModel() ) {
+					return surface;
+				}
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -166,6 +204,44 @@ class CommandExecutor {
 	}
 
 	/**
+	 * Insert text or wikitext inside VisualEditor.
+	 *
+	 * @param {Object} surface VE surface
+	 * @param {Object} action
+	 */
+	insertWikitextVE( surface, action ) {
+		if ( !action.wikitext ) {
+			return;
+		}
+		const fragment = surface.getModel().getFragment();
+		let text = action.wikitext;
+
+		if ( action.type === 'insert_text' ) {
+			const range = typeof fragment.getRange === 'function' ? fragment.getRange() : null;
+			if ( range && typeof range.isCollapsed === 'function' && range.isCollapsed() ) {
+				let before = '';
+				if ( typeof fragment.getTextBefore === 'function' ) {
+					before = fragment.getTextBefore();
+				} else if ( surface.getModel().getDocument &&
+					typeof surface.getModel().getDocument().getText === 'function'
+				) {
+					const doc = surface.getModel().getDocument();
+					if ( window.ve && window.ve.Range ) {
+						const startPos = Math.max( 0, range.start - 10 );
+						before = doc.getText( new window.ve.Range( startPos, range.start ) );
+					}
+				}
+				if ( before && !/\s$/.test( before ) && !/^[\s.,;:!?]/.test( text ) ) {
+					text = ' ' + text;
+				}
+			}
+		}
+
+		fragment.insertContent( text );
+		this.handlers.onFeedback( action.feedback || '' );
+	}
+
+	/**
 	 * Apply bold/italic to the current selection, or insert pre-built markup.
 	 *
 	 * @param {Object} action
@@ -190,6 +266,34 @@ class CommandExecutor {
 	}
 
 	/**
+	 * Apply formatting (bold, italic, clear, etc.) inside VisualEditor.
+	 *
+	 * @param {Object} surface VE surface
+	 * @param {Object} action
+	 */
+	applyFormatVE( surface, action ) {
+		const fragment = surface.getModel().getFragment();
+		if ( action.clear ) {
+			if ( typeof fragment.clearAnnotations === 'function' ) {
+				fragment.clearAnnotations();
+			} else if ( typeof fragment.insertContent === 'function' ) {
+				fragment.insertContent( '' );
+			}
+		} else if ( action.style === 'bold' || action.style === 'italic' ) {
+			if ( typeof fragment.annotateContent === 'function' ) {
+				fragment.annotateContent( 'set', action.style );
+			}
+		} else if ( action.wikitext ) {
+			fragment.insertContent( action.wikitext );
+		} else if ( action.wrap ) {
+			const selText = typeof fragment.getText === 'function' ? fragment.getText() : '';
+			const text = action.wrap.pre + selText + action.wrap.post;
+			fragment.insertContent( text );
+		}
+		this.handlers.onFeedback( action.feedback || '' );
+	}
+
+	/**
 	 * @param {Object} action
 	 */
 	save( action ) {
@@ -208,6 +312,21 @@ class CommandExecutor {
 	}
 
 	/**
+	 * Save inside VisualEditor.
+	 *
+	 * @param {Object} action
+	 */
+	saveVE( action ) {
+		const target = window.ve.init.target;
+		if ( typeof target.executeCommand === 'function' ) {
+			target.executeCommand( 'showSave' );
+		} else if ( typeof target.save === 'function' ) {
+			target.save();
+		}
+		this.handlers.onFeedback( action.feedback || '' );
+	}
+
+	/**
 	 * @param {Object} action
 	 */
 	preview( action ) {
@@ -219,6 +338,19 @@ class CommandExecutor {
 		}
 		this.handlers.onFeedback( action.feedback || '' );
 		$preview.trigger( 'click' );
+	}
+
+	/**
+	 * Preview (show changes) inside VisualEditor.
+	 *
+	 * @param {Object} action
+	 */
+	previewVE( action ) {
+		const target = window.ve.init.target;
+		if ( typeof target.executeCommand === 'function' ) {
+			target.executeCommand( 'showChanges' );
+		}
+		this.handlers.onFeedback( action.feedback || '' );
 	}
 
 	/**
@@ -238,6 +370,21 @@ class CommandExecutor {
 		$textarea.textSelection( 'setContents', this.undoStack.pop() );
 		this.handlers.onFeedback( action.feedback || '' );
 	}
+
+	/**
+	 * Undo inside VisualEditor.
+	 *
+	 * @param {Object} surface VE surface
+	 * @param {Object} action
+	 */
+	undoVE( surface, action ) {
+		const model = surface.getModel();
+		if ( typeof model.undo === 'function' ) {
+			model.undo();
+		}
+		this.handlers.onFeedback( action.feedback || '' );
+	}
 }
 
+window.CommandExecutor = CommandExecutor;
 module.exports = CommandExecutor;

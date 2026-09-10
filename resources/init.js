@@ -176,14 +176,12 @@ const AudioFeedback = require( './audioFeedback.js' );
 			showThinking: !!config.showThinking,
 			visualIndicators: config.visualIndicators !== false,
 			unsupported: !supported,
-			wakePhrase: config.wakePhrase || ''
-		} );
-		panel = panelApp.mount( container );
-
-		if ( panel ) {
-			panel.onToggleListening = () => {
+			wakePhrase: config.wakePhrase || '',
+			onToggleListening: () => {
 				if ( !supported ) {
-					panel.setError( mw.message( 'wandavoice-error-nosupport' ).text() );
+					if ( panel ) {
+						panel.setError( mw.message( 'wandavoice-error-nosupport' ).text() );
+					}
 					return;
 				}
 				if ( recognition && recognition.enabled ) {
@@ -195,15 +193,16 @@ const AudioFeedback = require( './audioFeedback.js' );
 					setListeningFlag( true );
 					audio.speak( mw.message( 'wandavoice-feedback-listening-on' ).text() );
 				}
-			};
-			panel.onPushToTalk = () => {
+			},
+			onPushToTalk: () => {
 				audio.earcon( 'wake' );
 				audio.vibrate();
 				if ( recognition ) {
 					recognition.captureNow();
 				}
-			};
-		}
+			}
+		} );
+		panel = panelApp.mount( container );
 
 		if ( Engine ) {
 			recognition = new Engine( config, {
@@ -259,3 +258,10 @@ const AudioFeedback = require( './audioFeedback.js' );
 		document.body.classList.add( 'wandavoice-active' );
 	} );
 }() );
+
+window.WandaVoice = {
+	CommandProcessor: CommandProcessor,
+	CommandExecutor: CommandExecutor
+};
+
+module.exports = window.WandaVoice;

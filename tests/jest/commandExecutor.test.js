@@ -58,6 +58,7 @@ beforeEach( () => {
 	global.sessionStorage.clear();
 	global.window.location.href = '';
 	global.$ = () => ( { length: 0 } );
+	delete global.window.ve;
 } );
 
 describe( 'navigation actions', () => {
@@ -254,5 +255,104 @@ describe( 'save and preview', () => {
 		] );
 		expect( feedback ).toContain( 'cancelled' );
 		expect( global.window.location.href ).toBe( '' );
+	} );
+} );
+
+describe( 'VisualEditor actions', () => {
+	function makeVeSurface() {
+		const insertedContent = [];
+		const annotations = [];
+		const commandsExecuted = [];
+		let undoCount = 0;
+
+		const fragment = {
+			insertContent: ( content ) => insertedContent.push( content ),
+			annotateContent: ( method, style ) => annotations.push( [ method, style ] ),
+			clearAnnotations: () => annotations.push( [ 'clear' ] ),
+			getText: () => 'selected text',
+			getRange: () => ( { isCollapsed: () => true, start: 5 } ),
+			getTextBefore: () => 'Hello'
+		};
+
+		const model = {
+			getFragment: () => fragment,
+			undo: () => {
+				undoCount++;
+			}
+		};
+
+		const surface = {
+			getModel: () => model
+		};
+
+		const target = {
+			getSurface: () => surface,
+			executeCommand: ( cmd ) => commandsExecuted.push( cmd )
+		};
+
+		global.window.ve = {
+			init: {
+				target: target
+			}
+		};
+
+		return {
+			surface,
+			fragment,
+			model,
+			target,
+			insertedContent,
+			annotations,
+			commandsExecuted,
+			getUndoCount: () => undoCount
+		};
+	}
+
+	it( 'inserts text and wikitext into VisualEditor surface', async () => {
+		const { executor, feedback } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'insert_text', wikitext: 'world', status: 'ready', feedback: 'inserted text' },
+			{ type: 'link', wikitext: '[[Paris]]', status: 'ready', feedback: 'inserted link' }
+		] );
+
+		expect( veMock.insertedContent ).toEqual( [ ' world', '[[Paris]]' ] );
+		expect( feedback ).toContain( 'inserted text' );
+		expect( feedback ).toContain( 'inserted link' );
+	} );
+
+	it( 'applies formatting in VisualEditor', async () => {
+		const { executor } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'format', style: 'bold', status: 'ready' },
+			{ type: 'format', style: 'italic', status: 'ready' },
+			{ type: 'format', style: 'clear', clear: true, status: 'ready' }
+		] );
+
+		expect( veMock.annotations ).toEqual( [
+			[ 'set', 'bold' ],
+			[ 'set', 'italic' ],
+			[ 'clear' ]
+		] );
+	} );
+
+	it( 'triggers save, preview, and undo in VisualEditor', async () => {
+		const { executor, feedback } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'save', status: 'ready', feedback: 'saving ve' },
+			{ type: 'preview', status: 'ready', feedback: 'previewing ve' },
+			{ type: 'undo', status: 'ready', feedback: 'undone ve' }
+		] );
+
+		expect( veMock.commandsExecuted ).toEqual( [ 'showSave', 'showChanges' ] );
+		expect( veMock.getUndoCount() ).toBe( 1 );
+		expect( feedback ).toContain( 'saving ve' );
+		expect( feedback ).toContain( 'previewing ve' );
+		expect( feedback ).toContain( 'undone ve' );
 	} );
 } );
