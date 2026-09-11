@@ -11,7 +11,14 @@
 		"commonjs": true
 	},
 	"rules": {
-		"no-console": [ "error", { "allow": [ "error" ] } ],
+		"no-console": [
+			"error",
+			{
+				"allow": [
+					"error"
+				]
+			}
+		],
 		"mediawiki/no-unlabeled-buttonwidget": "off"
 	}
 }
