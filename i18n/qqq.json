@@ -41,6 +41,8 @@
 	"wandavoice-help-title": "Heading of the example voice commands help section.",
 	"wandavoice-help-commands": "A list of example voice commands, separated by middle dots. Translate the example phrases.",
 	"wandavoice-close": "Label of the button that closes the voice status panel.\n{{Identical|Close}}",
+	"wandavoice-capture-button": "Button that bypasses the wake phrase and starts capturing a command while voice control is already active.",
+	"wandavoice-error-network": "Error shown when the browser speech recognition service fails with a network error. Explains that listening has stopped and suggests recovery options.",
 	"wandavoice-error-nosupport": "Error message shown when the browser does not support speech recognition.",
 	"wandavoice-error-mic-denied": "Error message shown when the user denied microphone access.",
 	"wandavoice-error-generic": "Generic error message shown when processing a voice command fails.",

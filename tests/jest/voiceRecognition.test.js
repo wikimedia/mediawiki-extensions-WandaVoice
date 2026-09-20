@@ -267,6 +267,11 @@ describe( 'listening lifecycle', () => {
 		recognizer.stop();
 
 		expect( recognizer.enabled ).toBe( false );
+		expect( recognizer.stage ).toBe( 'off' );
+		expect( recognizer.recognition ).toBeNull();
+		expect( created[ 0 ].onresult ).toBeNull();
+		expect( created[ 0 ].onerror ).toBeNull();
+		expect( created[ 0 ].onend ).toBeNull();
 		expect( created[ 0 ].stopped ).toBe( 1 );
 		expect( events.states ).toContain( 'off' );
 	} );
@@ -303,5 +308,345 @@ describe( 'listening lifecycle', () => {
 
 		recognizer.stop();
 		expect( created[ 0 ].onend ).toBeNull();
+	} );
+
+	describe( 'fatal error usability regressions', () => {
+		beforeEach( () => {
+			jest.useFakeTimers();
+		} );
+
+		afterEach( () => {
+			jest.restoreAllMocks();
+			jest.useRealTimers();
+		} );
+
+		it.each( [
+			[ 'network', 'network' ],
+			[ 'audio-capture', 'generic' ],
+			[ 'unexpected-browser-error', 'generic' ],
+			[ 'language-not-supported', 'generic' ]
+		] )( 'stops on fatal %s and never restarts from a queued end event', ( error, expected ) => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const current = created[ 0 ];
+			const queuedEnd = current.onend;
+
+			current.onerror( { error } );
+			queuedEnd();
+			jest.advanceTimersByTime( 1000 );
+
+			expect( events.errors ).toEqual( [ expected ] );
+			expect( events.states ).toEqual( [ 'wake', 'off' ] );
+			expect( recognizer.enabled ).toBe( false );
+			expect( recognizer.stage ).toBe( 'off' );
+			expect( recognizer.recognition ).toBeNull();
+			expect( [ current.onresult, current.onerror, current.onend ] )
+				.toEqual( [ null, null, null ] );
+			expect( current.stopped ).toBe( 1 );
+			expect( current.started ).toBe( 1 );
+			expect( recognizer.restartTimer ).toBeNull();
+			expect( jest.getTimerCount() ).toBe( 0 );
+		} );
+
+		it( 'stops only after all configured language fallbacks are exhausted', () => {
+			const { recognizer, events } = makeTracked( { fallbackLanguages: [ 'en-GB', 'fr' ] } );
+			recognizer.start();
+			const current = created[ 0 ];
+			const queuedEnd = current.onend;
+
+			for ( const language of [ 'en-GB', 'fr' ] ) {
+				current.onerror( { error: 'language-not-supported' } );
+				expect( current.lang ).toBe( language );
+				expect( recognizer.enabled ).toBe( true );
+				expect( events.errors ).toEqual( [] );
+			}
+			current.onerror( { error: 'language-not-supported' } );
+			queuedEnd();
+			jest.advanceTimersByTime( 1000 );
+
+			expect( recognizer.enabled ).toBe( false );
+			expect( recognizer.stage ).toBe( 'off' );
+			expect( events.states ).toEqual( [ 'wake', 'off' ] );
+			expect( events.errors ).toEqual( [ 'generic' ] );
+			expect( current.started ).toBe( 1 );
+			expect( current.stopped ).toBe( 1 );
+			expect( jest.getTimerCount() ).toBe( 0 );
+		} );
+
+		it( 'cancels an already scheduled restart when a fatal network error arrives', () => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const current = created[ 0 ];
+			const start = jest.spyOn( current, 'start' ).mockImplementation( () => {
+				throw new Error( 'busy' );
+			} );
+			current.onend();
+			expect( jest.getTimerCount() ).toBe( 1 );
+
+			current.onerror( { error: 'network' } );
+			jest.advanceTimersByTime( 1000 );
+
+			expect( recognizer.enabled ).toBe( false );
+			expect( recognizer.restartTimer ).toBeNull();
+			expect( jest.getTimerCount() ).toBe( 0 );
+			expect( start ).toHaveBeenCalledTimes( 1 );
+			expect( events.errors ).toEqual( [ 'network' ] );
+		} );
+
+		it( 'accepts a command on an explicit retry after a fatal network error', () => {
+			const { recognizer, events } = makeTracked( { wakePhrase: '' } );
+			recognizer.start();
+			created[ 0 ].onerror( { error: 'network' } );
+			expect( recognizer.enabled ).toBe( false );
+
+			recognizer.start();
+			created[ 1 ].onresult( makeEvent( 'save', true ) );
+
+			expect( created ).toHaveLength( 2 );
+			expect( created[ 1 ].started ).toBe( 1 );
+			expect( recognizer.enabled ).toBe( true );
+			expect( recognizer.stage ).toBe( 'processing' );
+			expect( events.states ).toEqual( [ 'capture', 'off', 'capture' ] );
+			expect( events.commands ).toEqual( [ 'save' ] );
+			expect( events.errors ).toEqual( [ 'network' ] );
+		} );
+
+		it.each( [ 'constructor', 'start' ] )( 'stops without announcing active state when %s throws', ( failure ) => {
+			const { recognizer, events } = makeTracked();
+			if ( failure === 'constructor' ) {
+				global.window.SpeechRecognition = jest.fn( () => {
+					throw new Error( 'unavailable' );
+				} );
+			} else {
+				jest.spyOn( FakeSpeechRecognition.prototype, 'start' ).mockImplementation( () => {
+					throw new Error( 'cannot start' );
+				} );
+			}
+
+			expect( () => recognizer.start() ).not.toThrow();
+			jest.advanceTimersByTime( 1000 );
+
+			expect( recognizer.enabled ).toBe( false );
+			expect( recognizer.stage ).toBe( 'off' );
+			expect( recognizer.recognition ).toBeNull();
+			expect( events.states ).toEqual( [ 'off' ] );
+			expect( events.errors ).toEqual( [ 'generic' ] );
+			expect( jest.getTimerCount() ).toBe( 0 );
+		} );
+
+		it( 'stops when the delayed restart also throws instead of retrying indefinitely', () => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const current = created[ 0 ];
+			const queuedEnd = current.onend;
+			const start = jest.spyOn( current, 'start' ).mockImplementation( () => {
+				throw new Error( 'cannot restart' );
+			} );
+
+			queuedEnd();
+			expect( recognizer.enabled ).toBe( true );
+			jest.advanceTimersByTime( 250 );
+			queuedEnd();
+			jest.advanceTimersByTime( 1000 );
+
+			expect( start ).toHaveBeenCalledTimes( 2 );
+			expect( recognizer.enabled ).toBe( false );
+			expect( recognizer.stage ).toBe( 'off' );
+			expect( recognizer.recognition ).toBeNull();
+			expect( current.stopped ).toBe( 1 );
+			expect( events.states ).toEqual( [ 'wake', 'off' ] );
+			expect( events.errors ).toEqual( [ 'generic' ] );
+			expect( recognizer.restartTimer ).toBeNull();
+			expect( jest.getTimerCount() ).toBe( 0 );
+		} );
+
+		it( 'stops after a command in noncontinuous mode even with a wake phrase configured', () => {
+			const { recognizer, events } = makeTracked( { continuousMode: false } );
+			recognizer.start();
+			// Push-to-talk deliberately bypasses wake matching, which is outside this regression.
+			recognizer.captureNow();
+			const current = created[ 0 ];
+			const queuedEnd = current.onend;
+			current.onresult( makeEvent( 'save', true ) );
+			expect( recognizer.stage ).toBe( 'processing' );
+
+			recognizer.resumeWake();
+			queuedEnd();
+			jest.advanceTimersByTime( 1000 );
+
+			expect( events.commands ).toEqual( [ 'save' ] );
+			expect( recognizer.enabled ).toBe( false );
+			expect( recognizer.stage ).toBe( 'off' );
+			expect( events.states ).toEqual( [ 'wake', 'capture', 'off' ] );
+			expect( current.stopped ).toBe( 1 );
+			expect( current.started ).toBe( 1 );
+			expect( jest.getTimerCount() ).toBe( 0 );
+		} );
+	} );
+
+	describe( 'cancellation regressions', () => {
+		beforeEach( () => {
+			jest.useFakeTimers();
+		} );
+
+		afterEach( () => {
+			jest.restoreAllMocks();
+			jest.useRealTimers();
+		} );
+
+		describe.each( [ false, true ] )( 'restart = %s', ( restart ) => {
+			it.each( [
+				[ 'final', '' ], [ 'interim', '' ],
+				[ 'wake-final', 'wanda' ], [ 'wake-interim', 'wanda' ],
+				[ 'permission', 'wanda' ], [ 'generic', 'wanda' ],
+				[ 'language', 'wanda' ], [ 'end', 'wanda' ]
+			] )(
+				'ignores a queued %s callback from the stopped instance', ( kind, wakePhrase ) => {
+					const { recognizer, events } = makeTracked( {
+						wakePhrase, fallbackLanguages: [ 'fr' ]
+					} );
+					recognizer.start();
+					const old = created[ 0 ];
+					// Save callbacks before detaching: the browser may already have queued them.
+					const callbacks = { result: old.onresult, error: old.onerror, end: old.onend };
+					recognizer.stop();
+					if ( restart ) {
+						recognizer.start();
+					}
+					const states = events.states.slice();
+					const current = recognizer.recognition;
+
+					if ( kind.endsWith( 'final' ) || kind.endsWith( 'interim' ) ) {
+						callbacks.result( makeEvent( 'wanda save', kind.endsWith( 'final' ) ) );
+					} else if ( kind === 'end' ) {
+						callbacks.end();
+					} else {
+						callbacks.error( { error: {
+							permission: 'not-allowed', generic: 'network', language: 'language-not-supported'
+						}[ kind ] } );
+					}
+					jest.advanceTimersByTime( 1000 );
+
+					expect( events ).toEqual( {
+						wakes: 0, commands: [], interims: [], states, errors: []
+					} );
+					expect( recognizer.enabled ).toBe( restart );
+					const initialStage = wakePhrase ? 'wake' : 'capture';
+					expect( recognizer.stage ).toBe( restart ? initialStage : 'off' );
+					expect( recognizer.recognition ).toBe( current );
+					expect( recognizer.langIndex ).toBe( 0 );
+					expect( old.started ).toBe( 1 );
+					expect( jest.getTimerCount() ).toBe( 0 );
+				}
+			);
+
+			it( 'clears delayed restarts and ignores an already queued retry', () => {
+				const { recognizer, events } = makeTracked();
+				recognizer.start();
+				const old = created[ 0 ];
+				const start = jest.spyOn( old, 'start' ).mockImplementation( () => {
+					throw new Error( 'busy' );
+				} );
+				const timeout = jest.spyOn( global, 'setTimeout' );
+				old.onend();
+				const retry = timeout.mock.calls[ 0 ][ 0 ];
+				expect( recognizer.restartTimer ).not.toBeNull();
+				expect( jest.getTimerCount() ).toBe( 1 );
+
+				recognizer.stop();
+				expect( recognizer.restartTimer ).toBeNull();
+				expect( jest.getTimerCount() ).toBe( 0 );
+				if ( restart ) {
+					recognizer.start();
+				}
+				const states = events.states.slice();
+				jest.advanceTimersByTime( 1000 );
+				retry();
+
+				expect( start ).toHaveBeenCalledTimes( 1 );
+				expect( events.errors ).toEqual( [] );
+				expect( events.states ).toEqual( states );
+				expect( recognizer.enabled ).toBe( restart );
+			} );
+		} );
+
+		it.each( [ false, true ] )( 'invalidates before synchronous abort results (throws = %s)', ( throws ) => {
+			const { recognizer, events } = makeTracked( { wakePhrase: '' } );
+			recognizer.start();
+			const old = created[ 0 ];
+			const result = old.onresult;
+			let atAbort;
+			old.abort = jest.fn( () => {
+				// Assert outside abort: stop intentionally catches exceptions from this callback.
+				atAbort = {
+					enabled: recognizer.enabled, stage: recognizer.stage,
+					recognition: recognizer.recognition,
+					callbacks: [ old.onresult, old.onerror, old.onend ]
+				};
+				result( makeEvent( 'save', true ) );
+				if ( throws ) {
+					throw new Error( 'already aborted' );
+				}
+			} );
+
+			recognizer.stop();
+
+			expect( atAbort ).toEqual( {
+				enabled: false, stage: 'off', recognition: null, callbacks: [ null, null, null ]
+			} );
+			expect( old.abort ).toHaveBeenCalledTimes( 1 );
+			expect( old.stopped ).toBe( 0 );
+			expect( events.commands ).toEqual( [] );
+			expect( events.errors ).toEqual( [] );
+			expect( events.states ).toEqual( [ 'capture', 'off' ] );
+		} );
+
+		it( 'does not enter capture while disabled', () => {
+			const { recognizer, events } = makeTracked();
+			recognizer.captureNow();
+			expect( recognizer.stage ).toBe( 'wake' );
+			expect( events.states ).toEqual( [] );
+			recognizer.start();
+			recognizer.stop();
+
+			recognizer.captureNow();
+
+			expect( recognizer.stage ).toBe( 'off' );
+			expect( recognizer.enabled ).toBe( false );
+			expect( events.states ).toEqual( [ 'wake', 'off' ] );
+			expect( created ).toHaveLength( 1 );
+		} );
+
+		it( 'delivers current interim and final results after restarting', () => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			recognizer.stop();
+			recognizer.start();
+			recognizer.captureNow();
+
+			created[ 1 ].onresult( makeEvent( 'search for', false ) );
+			created[ 1 ].onresult( makeEvent( 'search for cats', true ) );
+
+			expect( events.interims ).toEqual( [ 'search for' ] );
+			expect( events.commands ).toEqual( [ 'search for cats' ] );
+			expect( recognizer.stage ).toBe( 'processing' );
+		} );
+
+		it( 'runs a delayed restart while the session is still current', () => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const start = jest.spyOn( created[ 0 ], 'start' ).mockImplementationOnce( () => {
+				throw new Error( 'busy' );
+			} );
+
+			created[ 0 ].onend();
+			jest.advanceTimersByTime( 249 );
+			expect( start ).toHaveBeenCalledTimes( 1 );
+			jest.advanceTimersByTime( 1 );
+
+			expect( start ).toHaveBeenCalledTimes( 2 );
+			expect( recognizer.restartTimer ).toBeNull();
+			expect( events.errors ).toEqual( [] );
+		} );
 	} );
 } );

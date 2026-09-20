@@ -67,6 +67,8 @@
 				"wandavoice-help-title",
 				"wandavoice-help-commands",
 				"wandavoice-close",
+				"wandavoice-capture-button",
+				"wandavoice-error-network",
 				"wandavoice-error-nosupport",
 				"wandavoice-error-mic-denied",
 				"wandavoice-error-generic",

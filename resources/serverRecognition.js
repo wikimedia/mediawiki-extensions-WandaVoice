@@ -40,6 +40,9 @@ class ServerRecognition {
 		this.recorder = null;
 		this.monitorTimer = null;
 		this.mimeType = '';
+		this.generation = 0;
+		this.reader = null;
+		this.request = null;
 	}
 
 	/**
@@ -57,9 +60,10 @@ class ServerRecognition {
 			return;
 		}
 		this.enabled = true;
+		const generation = ++this.generation;
 		navigator.mediaDevices.getUserMedia( { audio: true } ).then(
 			( stream ) => {
-				if ( !this.enabled ) {
+				if ( !this.enabled || generation !== this.generation ) {
 					stream.getTracks().forEach( ( track ) => track.stop() );
 					return;
 				}
@@ -69,7 +73,10 @@ class ServerRecognition {
 				this.handlers.onStateChange( 'capture' );
 			},
 			() => {
-				this.enabled = false;
+				if ( !this.enabled || generation !== this.generation ) {
+					return;
+				}
+				this.stop();
 				this.handlers.onError( 'mic-denied' );
 			}
 		);
@@ -78,13 +85,35 @@ class ServerRecognition {
 	/** Stop listening entirely and release the microphone. */
 	stop() {
 		this.enabled = false;
-		this.stopMonitor();
-		if ( this.recorder && this.recorder.state !== 'inactive' ) {
-			this.recorder.onstop = null;
+		this.generation++;
+		const reader = this.reader;
+		const request = this.request;
+		this.reader = null;
+		this.request = null;
+		if ( reader ) {
+			reader.onload = null;
+			reader.onerror = null;
+			if ( reader.readyState === 1 ) {
+				reader.abort();
+			}
+		}
+		if ( request && typeof request.abort === 'function' ) {
 			try {
-				this.recorder.stop();
+				request.abort();
 			} catch ( e ) {
-				// Already stopped.
+				// Generation checks still discard results if abort fails.
+			}
+		}
+		this.stopMonitor();
+		if ( this.recorder ) {
+			this.recorder.ondataavailable = null;
+			this.recorder.onstop = null;
+			if ( this.recorder.state !== 'inactive' ) {
+				try {
+					this.recorder.stop();
+				} catch ( e ) {
+					// Already stopped.
+				}
 			}
 		}
 		this.recorder = null;
@@ -160,7 +189,7 @@ class ServerRecognition {
 
 	/** Record one silence-delimited utterance segment. */
 	beginSegment() {
-		if ( !this.stream ) {
+		if ( !this.enabled || !this.stream ) {
 			return;
 		}
 		if ( !this.mimeType ) {
@@ -179,13 +208,19 @@ class ServerRecognition {
 			{ mimeType: this.mimeType, audioBitsPerSecond: 32000 } :
 			{ audioBitsPerSecond: 32000 } );
 		this.recorder = recorder;
+		const generation = this.generation;
+		const isCurrent = () => this.enabled && generation === this.generation &&
+			this.recorder === recorder;
 
 		recorder.ondataavailable = ( event ) => {
-			if ( event.data && event.data.size ) {
+			if ( isCurrent() && event.data && event.data.size ) {
 				chunks.push( event.data );
 			}
 		};
 		recorder.onstop = () => {
+			if ( !isCurrent() ) {
+				return;
+			}
 			this.stopMonitor();
 			const blob = new Blob( chunks, { type: recorder.mimeType } );
 			if ( !this.enabled || !hadSpeech || blob.size < MIN_BLOB_BYTES ) {
@@ -209,6 +244,9 @@ class ServerRecognition {
 		let lastVoice = Date.now();
 		this.stopMonitor();
 		this.monitorTimer = setInterval( () => {
+			if ( !isCurrent() ) {
+				return;
+			}
 			if ( recorder.state !== 'recording' ) {
 				this.stopMonitor();
 				return;
@@ -239,21 +277,37 @@ class ServerRecognition {
 	 * @param {Blob} blob
 	 */
 	transcribe( blob ) {
+		if ( !this.enabled ) {
+			return;
+		}
+		const generation = this.generation;
+		const isCurrent = () => this.enabled && generation === this.generation;
 		this.handlers.onStateChange( 'processing' );
 
 		const reader = new FileReader();
+		this.reader = reader;
 		reader.onload = () => {
+			if ( !isCurrent() || this.reader !== reader ) {
+				return;
+			}
+			this.reader = null;
 			const base64 = String( reader.result ).split( ',' )[ 1 ] || '';
 			// The recorder may report parameters ("audio/webm;codecs=opus").
 			const baseMime = ( blob.type || 'audio/webm' ).split( ';' )[ 0 ];
-			this.api.post( {
+			const request = this.api.post( {
 				action: 'wandavoicetranscribe',
 				format: 'json',
 				audio: base64,
 				mimetype: baseMime,
 				lang: this.config.language || ''
-			} ).then(
+			} );
+			this.request = request;
+			request.then(
 				( data ) => {
+					if ( !isCurrent() || this.request !== request ) {
+						return;
+					}
+					this.request = null;
 					const text = ( data && data.text || '' ).trim();
 					if ( text ) {
 						this.handlers.onCommand( text );
@@ -262,6 +316,10 @@ class ServerRecognition {
 					}
 				},
 				() => {
+					if ( !isCurrent() || this.request !== request ) {
+						return;
+					}
+					this.request = null;
 					this.handlers.onError( 'generic' );
 					if ( this.enabled ) {
 						this.resumeWake();
@@ -270,6 +328,10 @@ class ServerRecognition {
 			);
 		};
 		reader.onerror = () => {
+			if ( !isCurrent() || this.reader !== reader ) {
+				return;
+			}
+			this.reader = null;
 			this.handlers.onError( 'generic' );
 			if ( this.enabled ) {
 				this.resumeWake();

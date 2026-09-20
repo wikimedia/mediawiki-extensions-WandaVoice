@@ -8,8 +8,9 @@
  */
 
 .wandavoice-panel {
+	--wandavoice-bottom: 16px;
 	position: fixed;
-	bottom: 16px;
+	bottom: var( --wandavoice-bottom );
 	left: 16px;
 	z-index: 400;
 	display: flex;
@@ -17,6 +18,13 @@
 	align-items: flex-start;
 	gap: 8px;
 	font-family: sans-serif;
+}
+
+.wandavoice-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
 }
 
 .wandavoice-mic-button {
@@ -38,7 +46,7 @@
 }
 
 /* High-contrast visual indicator for keyboard users. */
-.wandavoice-mic-button:focus {
+.wandavoice-mic-button:focus-visible {
 	outline: 3px solid #fc3;
 	outline-offset: 2px;
 }
@@ -100,6 +108,12 @@
 	padding: 12px;
 	font-size: 0.875rem;
 	color: #202122;
+	box-sizing: border-box;
+	/* Reserve the toolbar, gap and top margin, including the mobile offset. */
+	max-height: calc( 100vh - var( --wandavoice-bottom ) - 80px );
+	max-height: calc( 100dvh - var( --wandavoice-bottom ) - 80px );
+	overflow-y: auto;
+	overscroll-behavior: contain;
 }
 
 .wandavoice-status-header {
@@ -179,6 +193,8 @@
 	margin-top: 8px;
 	display: flex;
 	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 8px;
 }
 
 /* Visually hidden live region for screen reader announcements. */
@@ -196,6 +212,6 @@
 
 @media ( max-width: 640px ) {
 	.wandavoice-panel {
-		bottom: 72px;
+		--wandavoice-bottom: 72px;
 	}
 }

@@ -1,4 +1,5 @@
 <template>
+	<!-- eslint-disable vue/component-name-in-template-casing -- MediaWiki 1.43 parses templates as HTML; preserve component names with kebab-case. -->
 	<div
 		class="wandavoice-panel"
 		:class="{
@@ -8,17 +9,18 @@
 	>
 		<div
 			v-if="isCardVisible"
+			id="wandavoice-status-card"
 			class="wandavoice-status-card"
 		>
 			<div class="wandavoice-status-header">
 				<strong>{{ msg( 'wandavoice-panel-title' ) }}</strong>
-				<CdxButton
+				<cdx-button
 					weight="quiet"
 					:aria-label="msg( 'wandavoice-close' )"
-					@click="expanded = false"
+					@click="closePanel"
 				>
 					✕
-				</CdxButton>
+				</cdx-button>
 			</div>
 
 			<div class="wandavoice-status-row">
@@ -30,11 +32,11 @@
 				<span class="wandavoice-status-text">{{ statusText }}</span>
 			</div>
 
-			<CdxProgressBar
+			<cdx-progress-bar
 				v-if="state === 'processing'"
 				inline
 				:aria-label="msg( 'wandavoice-status-processing' )"
-			></CdxProgressBar>
+			></cdx-progress-bar>
 
 			<p v-if="transcript" class="wandavoice-transcript">
 				<span class="wandavoice-transcript-label">
@@ -43,13 +45,13 @@
 				{{ transcript }}
 			</p>
 
-			<CdxMessage
+			<cdx-message
 				v-if="error"
 				type="error"
 				inline
 			>
 				{{ error }}
-			</CdxMessage>
+			</cdx-message>
 
 			<p v-else-if="feedback" class="wandavoice-feedback">
 				{{ feedback }}
@@ -70,38 +72,50 @@
 			</div>
 
 			<div class="wandavoice-actions">
-				<CdxButton
+				<cdx-button
+					v-if="state === 'wake'"
+					@click="pushToTalk"
+				>
+					{{ msg( 'wandavoice-capture-button' ) }}
+				</cdx-button>
+				<cdx-button
 					weight="quiet"
+					:aria-expanded="helpVisible"
 					@click="helpVisible = !helpVisible"
 				>
 					{{ msg( 'wandavoice-help-button' ) }}
-				</CdxButton>
+				</cdx-button>
 			</div>
 		</div>
 
-		<button
-			class="wandavoice-mic-button"
-			:class="'wandavoice-mic-button--' + state"
-			type="button"
-			accesskey="v"
-			:disabled="unsupported"
-			:aria-label="micAriaLabel"
-			:aria-pressed="state !== 'off' ? 'true' : 'false'"
-			:title="micAriaLabel"
-			@click="onMicClick"
-		>
-			<svg
-				class="wandavoice-mic-icon"
-				viewBox="0 0 24 24"
-				width="24"
-				height="24"
-				aria-hidden="true"
-				fill="currentColor"
+		<div class="wandavoice-toolbar">
+			<button
+				ref="micButton"
+				class="wandavoice-mic-button"
+				:class="'wandavoice-mic-button--' + state"
+				type="button"
+				accesskey="v"
+				:disabled="unsupported"
+				:aria-label="micAriaLabel"
+				:aria-pressed="state !== 'off' ? 'true' : 'false'"
+				:title="micAriaLabel"
+				@click="onMicClick"
 			>
-				<path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
-				<path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11z" />
-			</svg>
-		</button>
+				<svg
+					class="wandavoice-mic-icon"
+					viewBox="0 0 24 24"
+					width="24"
+					height="24"
+					aria-hidden="true"
+					fill="currentColor"
+				>
+					<path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
+					<path
+						d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11z"
+					/>
+				</svg>
+			</button>
+		</div>
 
 		<!-- Screen reader announcements of every state change and confirmation. -->
 		<div
@@ -165,7 +179,7 @@ module.exports = exports = {
 	},
 	computed: {
 		isCardVisible() {
-			return this.visualIndicators && ( this.expanded || this.state !== 'off' );
+			return this.visualIndicators && this.expanded;
 		},
 		statusText() {
 			if ( this.unsupported ) {
@@ -214,28 +228,38 @@ module.exports = exports = {
 		},
 		/* eslint-enable mediawiki/msg-doc */
 		onMicClick() {
-			if ( this.state === 'wake' ) {
-				if ( typeof this.onPushToTalk === 'function' ) {
-					this.onPushToTalk();
-				} else {
-					this.$emit( 'push-to-talk' );
-				}
-			} else {
-				if ( typeof this.onToggleListening === 'function' ) {
-					this.onToggleListening();
-				} else {
-					this.$emit( 'toggle-listening' );
-				}
-			}
-		},
-		setState( state ) {
-			this.state = state;
-			if ( state !== 'off' ) {
+			if ( this.state === 'off' ) {
+				this.error = '';
+				this.feedback = '';
+				this.transcript = '';
 				this.expanded = true;
 			}
-			if ( state === 'capture' ) {
-				this.error = '';
-				this.transcript = '';
+			if ( typeof this.onToggleListening === 'function' ) {
+				this.onToggleListening();
+			} else {
+				this.$emit( 'toggle-listening' );
+			}
+		},
+		pushToTalk() {
+			if ( typeof this.onPushToTalk === 'function' ) {
+				this.onPushToTalk();
+			} else {
+				this.$emit( 'push-to-talk' );
+			}
+		},
+		closePanel() {
+			this.expanded = false;
+			this.$nextTick( () => {
+				if ( this.$refs.micButton ) {
+					this.$refs.micButton.focus();
+				}
+			} );
+		},
+		setState( state ) {
+			const wasOff = this.state === 'off';
+			this.state = state;
+			if ( wasOff && state !== 'off' ) {
+				this.expanded = true;
 			}
 			this.announce( this.statusText );
 		},

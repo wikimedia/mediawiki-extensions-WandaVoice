@@ -41,6 +41,8 @@
 	"wandavoice-help-title": "Example voice commands",
 	"wandavoice-help-commands": "\"Navigate to Main Page\" · \"Search for quantum physics\" · \"Open history\" · \"Edit section 2\" · \"Make this bold\" · \"Create heading Ancient Rome\" · \"Insert link to Paris\" · \"Add citation needed\" · \"Create bullet point First item\" · \"Start dictation\" · \"Save changes\" · \"Undo\" · \"Stop listening\"",
 	"wandavoice-close": "Close",
+	"wandavoice-capture-button": "Speak a command",
+	"wandavoice-error-network": "The browser's speech service could not be reached. Voice control has stopped. Check your connection and try again. If you are using an embedded browser, try standalone Chrome or Safari, or ask your wiki administrator about server-side speech recognition.",
 	"wandavoice-error-nosupport": "Speech recognition is not supported by this browser. Try a Chromium-based browser or Safari.",
 	"wandavoice-error-mic-denied": "Microphone access was denied. Allow microphone access in the browser settings to use voice control.",
 	"wandavoice-error-generic": "Something went wrong while processing the voice command.",

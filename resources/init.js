@@ -82,6 +82,7 @@ const AudioFeedback = require( './audioFeedback.js' );
 
 		let panel = null;
 		let recognition = null;
+		let commandGeneration = 0;
 
 		const executor = new CommandExecutor( config, {
 			onFeedback: ( text ) => {
@@ -96,6 +97,23 @@ const AudioFeedback = require( './audioFeedback.js' );
 				audio.speak( text );
 			}
 		} );
+
+		/** Invalidate commands even when the engine stops itself (e.g. mic denial). */
+		function cancelCommands() {
+			commandGeneration++;
+			processor.cancel();
+		}
+
+		/** Explicit stop/cancel also discards any unconsumed navigation plan. */
+		function stopListening() {
+			cancelCommands();
+			executor.takePendingActions();
+			setListeningFlag( false );
+			audio.stopSpeaking();
+			if ( recognition ) {
+				recognition.stop();
+			}
+		}
 
 		/**
 		 * Run a processed command result: execute actions and handle
@@ -127,19 +145,24 @@ const AudioFeedback = require( './audioFeedback.js' );
 				}
 			} );
 
-			controls.forEach( ( action ) => {
+			for ( const action of controls ) {
 				if ( action.type === 'stop_listening' || action.type === 'cancel' ) {
-					recognition.stop();
-					setListeningFlag( false );
+					stopListening();
+					if ( action.feedback ) {
+						panel.setFeedback( action.feedback );
+						audio.speak( action.feedback );
+					}
+					return;
 				}
 				if ( action.type === 'help' ) {
 					panel.helpVisible = true;
+					panel.expanded = true;
 				}
 				if ( action.feedback ) {
 					panel.setFeedback( action.feedback );
 					audio.speak( action.feedback );
 				}
-			} );
+			}
 
 			await executor.executeActions( executable );
 		}
@@ -150,6 +173,11 @@ const AudioFeedback = require( './audioFeedback.js' );
 		 * @param {string} transcript
 		 */
 		async function handleCommand( transcript ) {
+			if ( !recognition || !recognition.enabled ) {
+				return;
+			}
+			const generation = commandGeneration;
+			const isCurrent = () => generation === commandGeneration && recognition.enabled;
 			panel.setState( 'processing' );
 			panel.setTranscript( transcript );
 			audio.stopSpeaking();
@@ -158,12 +186,21 @@ const AudioFeedback = require( './audioFeedback.js' );
 
 			try {
 				const result = await processor.process( transcript );
+				if ( !isCurrent() || !result ) {
+					return;
+				}
 				await runResult( result );
 			} catch ( e ) {
+				if ( !isCurrent() ) {
+					return;
+				}
 				panel.setError( mw.message( 'wandavoice-error-generic' ).text() );
 				audio.earcon( 'error' );
 			}
 
+			if ( !isCurrent() ) {
+				return;
+			}
 			if ( processor.dictationMode ) {
 				recognition.captureNow();
 				panel.setState( 'dictation' );
@@ -185,13 +222,14 @@ const AudioFeedback = require( './audioFeedback.js' );
 					return;
 				}
 				if ( recognition && recognition.enabled ) {
-					recognition.stop();
-					setListeningFlag( false );
+					stopListening();
 					audio.speak( mw.message( 'wandavoice-feedback-listening-off' ).text() );
 				} else if ( recognition ) {
 					recognition.start();
-					setListeningFlag( true );
-					audio.speak( mw.message( 'wandavoice-feedback-listening-on' ).text() );
+					setListeningFlag( recognition.enabled );
+					if ( recognition.enabled ) {
+						audio.speak( mw.message( 'wandavoice-feedback-listening-on' ).text() );
+					}
 				}
 			},
 			onPushToTalk: () => {
@@ -213,15 +251,23 @@ const AudioFeedback = require( './audioFeedback.js' );
 				},
 				onCommand: handleCommand,
 				onInterim: ( text ) => panel.setTranscript( text ),
-				onStateChange: ( state ) => panel.setState( state ),
+				onStateChange: ( state ) => {
+					if ( state === 'off' ) {
+						cancelCommands();
+						setListeningFlag( false );
+					}
+					panel.setState( state );
+				},
 				onError: ( kind ) => {
 					if ( kind === 'mic-denied' ) {
 						// Do not retry on every page load once permission is denied.
 						setListeningFlag( false );
 					}
-					panel.setError( mw.message(
-						kind === 'mic-denied' ? 'wandavoice-error-mic-denied' : 'wandavoice-error-generic'
-					).text() );
+					const errorMessage = kind === 'network' ?
+						mw.message( 'wandavoice-error-network' ).text() :
+						mw.message( kind === 'mic-denied' ?
+							'wandavoice-error-mic-denied' : 'wandavoice-error-generic' ).text();
+					panel.setError( errorMessage );
 					audio.earcon( 'error' );
 				}
 			} );
@@ -241,9 +287,13 @@ const AudioFeedback = require( './audioFeedback.js' );
 		// Resume a multi-step command that navigated to this page.
 		const pending = executor.takePendingActions();
 		if ( pending.length ) {
+			const generation = commandGeneration;
 			panel.setState( 'processing' );
 			executor.executeActions( pending ).then( () => {
-				if ( recognition.enabled ) {
+				if ( generation !== commandGeneration ) {
+					return;
+				}
+				if ( recognition && recognition.enabled ) {
 					recognition.resumeWake();
 				} else {
 					panel.setState( 'off' );

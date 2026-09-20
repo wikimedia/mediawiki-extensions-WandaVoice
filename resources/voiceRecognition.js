@@ -9,8 +9,8 @@
  *  - "capture" stage: records the actual command until a final result is
  *    produced, emitting interim transcripts along the way.
  *
- * No audio ever leaves the browser: the Web Speech API performs the
- * transcription and only the resulting text is processed further.
+ * The browser speech service performs transcription and may send audio to
+ * its provider. WandaVoice receives and processes the resulting text.
  */
 
 /**
@@ -71,6 +71,7 @@ class VoiceRecognition {
 		this.config = config;
 		this.handlers = handlers;
 		this.recognition = null;
+		this.restartTimer = null;
 		this.enabled = false;
 		// 'wake' (waiting for wake phrase) or 'capture' (recording a command)
 		this.stage = 'wake';
@@ -97,26 +98,42 @@ class VoiceRecognition {
 		this.enabled = true;
 		this.stage = this.wakePhrase ? 'wake' : 'capture';
 		this.createRecognition();
-		this.handlers.onStateChange( this.stage );
+		if ( this.enabled ) {
+			this.handlers.onStateChange( this.stage );
+		}
 	}
 
 	/** Stop listening entirely. */
 	stop() {
 		this.enabled = false;
+		this.stage = 'off';
+		clearTimeout( this.restartTimer );
+		this.restartTimer = null;
 		if ( this.recognition ) {
-			this.recognition.onend = null;
+			const recognition = this.recognition;
+			// Invalidate before aborting: abort/stop can dispatch final events.
+			this.recognition = null;
+			recognition.onresult = null;
+			recognition.onerror = null;
+			recognition.onend = null;
 			try {
-				this.recognition.stop();
+				if ( typeof recognition.abort === 'function' ) {
+					recognition.abort();
+				} else {
+					recognition.stop();
+				}
 			} catch ( e ) {
 				// Already stopped.
 			}
-			this.recognition = null;
 		}
 		this.handlers.onStateChange( 'off' );
 	}
 
 	/** Skip the wake phrase and capture the next utterance (push-to-talk). */
 	captureNow() {
+		if ( !this.enabled ) {
+			return;
+		}
 		this.stage = 'capture';
 		this.handlers.onStateChange( 'capture' );
 	}
@@ -127,7 +144,7 @@ class VoiceRecognition {
 			return;
 		}
 		this.stage = this.wakePhrase && this.config.continuousMode ? 'wake' : 'capture';
-		if ( !this.config.continuousMode && !this.wakePhrase ) {
+		if ( !this.config.continuousMode ) {
 			this.stop();
 			return;
 		}
@@ -139,26 +156,45 @@ class VoiceRecognition {
 	 */
 	createRecognition() {
 		const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-		const recognition = new SpeechRecognitionCtor();
+		let recognition;
+		try {
+			recognition = new SpeechRecognitionCtor();
+		} catch ( e ) {
+			this.stop();
+			this.handlers.onError( 'generic' );
+			return;
+		}
 
 		recognition.continuous = true;
 		recognition.interimResults = true;
 		recognition.lang = this.languages[ this.langIndex ] || '';
 
-		recognition.onresult = ( event ) => this.handleResult( event );
-		recognition.onerror = ( event ) => this.handleError( event );
+		const isCurrent = () => this.enabled && this.recognition === recognition;
+		recognition.onresult = ( event ) => {
+			if ( isCurrent() ) {
+				this.handleResult( event );
+			}
+		};
+		recognition.onerror = ( event ) => {
+			if ( isCurrent() ) {
+				this.handleError( event );
+			}
+		};
 		recognition.onend = () => {
 			// Browsers stop recognition after silence; restart while enabled.
-			if ( this.enabled ) {
+			if ( isCurrent() ) {
 				try {
 					recognition.start();
 				} catch ( e ) {
 					// Start can throw if called too quickly; retry shortly.
-					setTimeout( () => {
-						if ( this.enabled && this.recognition === recognition ) {
+					clearTimeout( this.restartTimer );
+					this.restartTimer = setTimeout( () => {
+						this.restartTimer = null;
+						if ( isCurrent() ) {
 							try {
 								recognition.start();
 							} catch ( err ) {
+								this.stop();
 								this.handlers.onError( 'generic' );
 							}
 						}
@@ -171,6 +207,7 @@ class VoiceRecognition {
 		try {
 			recognition.start();
 		} catch ( e ) {
+			this.stop();
 			this.handlers.onError( 'generic' );
 		}
 	}
@@ -179,6 +216,9 @@ class VoiceRecognition {
 	 * @param {Object} event SpeechRecognition result event
 	 */
 	handleResult( event ) {
+		if ( !this.enabled ) {
+			return;
+		}
 		let interim = '';
 		let finalText = '';
 		for ( let i = event.resultIndex; i < event.results.length; i++ ) {
@@ -290,7 +330,9 @@ class VoiceRecognition {
 				this.recognition.lang = this.languages[ this.langIndex ];
 			}
 		} else if ( event.error !== 'no-speech' && event.error !== 'aborted' ) {
-			this.handlers.onError( 'generic' );
+			// Fatal errors require an explicit retry, not an endless onend loop.
+			this.stop();
+			this.handlers.onError( event.error === 'network' ? 'network' : 'generic' );
 		}
 	}
 }
