@@ -153,8 +153,17 @@ $wgWandaVoiceOfflineCommands = [ 'save', 'preview', 'undo', 'cancel', 'stop list
 
 1. Click the floating microphone button (bottom-left corner) or press the
    access key (usually `Alt`+`Shift`+`V`) to start voice control.
-2. Say the wake phrase ("Wanda") followed by a command, or click the
-   button again to issue a command directly (push-to-talk).
+2. Begin an utterance with the configured wake phrase ("Wanda") followed by
+  a command, or use **Speak a command** inside the panel to bypass the wake
+  phrase. Clicking the microphone again stops listening.
+  Wake detection waits for a final transcript and matches whole words at
+  the start, not names embedded in other words or mentions later in a sentence.
+  Fuzzy matching still accepts close mishearings according to the configured
+  sensitivity. Only the leading wake phrase and its separator are removed;
+  the remaining transcript retains its case, punctuation and internal spacing.
+  Once capturing a command or dictating, speech is treated as content: do not
+  repeat the wake phrase. For example, "Wanda, type Hello NASA!" captures
+  "type Hello NASA!", while "I visited Rwanda." during dictation stays intact.
 3. Example commands:
 
    | Voice command | Result |

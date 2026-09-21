@@ -7,6 +7,7 @@ let props;
 let recognizers;
 let editor;
 let save;
+let config;
 let originalConfigGet;
 let originalJQuery;
 
@@ -28,11 +29,11 @@ async function flushPromises() {
 	}
 }
 
-function hear( text ) {
+function hear( text, isFinal = true ) {
 	const recognition = recognizers[ recognizers.length - 1 ];
 	recognition.onresult( {
 		resultIndex: 0,
-		results: [ { isFinal: true, 0: { transcript: text } } ]
+		results: [ { isFinal, 0: { transcript: text } } ]
 	} );
 }
 
@@ -75,13 +76,14 @@ beforeEach( () => {
 		return arg === '#wpTextbox1' ? editor : arg === '#wpSave' ? save : { length: 0 };
 	};
 	originalConfigGet = global.mw.config.get;
-	global.mw.config.get = ( key ) => key === 'wgWandaVoice' ? {
+	config = {
 		useLLM: true,
 		recognitionEngine: 'browser',
 		wakePhrase: '',
 		continuousMode: true,
 		audioFeedback: true
-	} : originalConfigGet( key );
+	};
+	global.mw.config.get = ( key ) => key === 'wgWandaVoice' ? config : originalConfigGet( key );
 	global.window.SpeechRecognition = class {
 		constructor() {
 			this.start = jest.fn();
@@ -211,6 +213,116 @@ describe( 'listening usability regressions', () => {
 		expect( global.window.speechSynthesis.speak ).toHaveBeenCalledWith(
 			expect.objectContaining( { text: 'wandavoice-feedback-listening-on' } )
 		);
+	} );
+} );
+
+describe( 'configured wake phrase command pipeline', () => {
+	let originalApiPost;
+
+	beforeEach( () => {
+		config.wakePhrase = 'Wanda';
+		originalApiPost = global.__apiPost;
+		global.__apiPost = jest.fn( () => Promise.resolve( {} ) );
+	} );
+
+	afterEach( () => {
+		global.__apiPost = originalApiPost;
+	} );
+
+	it.each( [ 'WANDA,', 'WoNdA:' ] )( 'inserts original wikitext exactly once after interim %s type commands', async ( wake ) => {
+		const wikitext = 'Wanda, [[NASA|Space]]: Café — https://Example.org/Path?Q=NASA#Top!';
+		const command = 'Type ' + wikitext;
+		loadInterface();
+		props.onToggleListening();
+		expect( panel.setState ).toHaveBeenLastCalledWith( 'wake' );
+		clearUiCalls();
+
+		for ( const text of [ wake, wake + ' Type', wake + ' ' + command, wake + ' ' + command ] ) {
+			hear( text, false );
+			await flushPromises();
+		}
+		expect( editor.textSelection ).not.toHaveBeenCalled();
+		expect( panel.setState ).not.toHaveBeenCalled();
+		expect( panel.setTranscript ).not.toHaveBeenCalled();
+		expect( panel.setFeedback ).not.toHaveBeenCalled();
+		expect( global.__apiPost ).not.toHaveBeenCalled();
+
+		hear( wake + ' ' + command );
+		await flushPromises();
+
+		expect( editor.textSelection.mock.calls.filter( ( call ) => call[ 0 ] === 'replaceSelection' ) )
+			.toEqual( [ [ 'replaceSelection', wikitext ] ] );
+		expect( panel.setTranscript.mock.calls ).toEqual( [ [ command ] ] );
+		expect( panel.setFeedback.mock.calls.filter( ( call ) => call[ 0 ] === 'wandavoice-feedback-wake' ) )
+			.toHaveLength( 1 );
+		expect( panel.setState ).toHaveBeenLastCalledWith( 'wake' );
+		expect( panel.setError ).not.toHaveBeenCalled();
+		expect( global.__apiPost ).not.toHaveBeenCalled();
+	} );
+
+	it.each( [ 'Rwanda, Type Wrong!', 'We asked Wanda to Type Wrong!' ] )(
+		'does not execute interim wake commands revised to %j', async ( finalText ) => {
+			loadInterface();
+			props.onToggleListening();
+			clearUiCalls();
+
+			hear( 'Wanda, Type Wrong!', false );
+			hear( 'Wanda, Type Wrong!', false );
+			await flushPromises();
+			hear( finalText );
+			await flushPromises();
+
+			expectNoLateEffects();
+			expect( global.__apiPost ).not.toHaveBeenCalled();
+		}
+	);
+
+	it.each( [ 'Rwanda', 'Wanda' ] )( 'preserves %s dictation content with a nonempty wake phrase', async ( name ) => {
+		config.useLLM = false;
+		const content = name + ', NASA!  Café\n你好 https://Example.org/Path?Q=NASA#Top!';
+		loadInterface();
+		props.onToggleListening();
+		hear( 'Wanda: Start Dictation!' );
+		await flushPromises();
+		expect( panel.setState ).toHaveBeenLastCalledWith( 'dictation' );
+		expect( editor.textSelection ).not.toHaveBeenCalled();
+		clearUiCalls();
+
+		hear( content, false );
+		await flushPromises();
+		expect( panel.setTranscript ).toHaveBeenLastCalledWith( content );
+		expect( editor.textSelection ).not.toHaveBeenCalled();
+		hear( '  ' + content + '\n' );
+		await flushPromises();
+
+		expect( editor.textSelection.mock.calls.filter( ( call ) => call[ 0 ] === 'replaceSelection' ) )
+			.toEqual( [ [ 'replaceSelection', content ] ] );
+		expect( panel.setTranscript ).toHaveBeenLastCalledWith( content );
+		expect( panel.setState ).toHaveBeenLastCalledWith( 'dictation' );
+		expect( panel.setError ).not.toHaveBeenCalled();
+		expect( global.__apiPost ).not.toHaveBeenCalled();
+	} );
+
+	it( 'opens help only on a final wake-prefixed control command', async () => {
+		loadInterface();
+		props.onToggleListening();
+		panel.expanded = false;
+		panel.helpVisible = false;
+
+		hear( 'Wanda: HELP!', false );
+		await flushPromises();
+		expect( panel.helpVisible ).toBe( false );
+		expect( panel.expanded ).toBe( false );
+		hear( 'Wanda: HELP!' );
+		await flushPromises();
+
+		expect( panel.helpVisible ).toBe( true );
+		expect( panel.expanded ).toBe( true );
+		expect( panel.setTranscript ).toHaveBeenLastCalledWith( 'HELP!' );
+		expect( panel.setState ).toHaveBeenLastCalledWith( 'wake' );
+		expect( panel.setError ).not.toHaveBeenCalled();
+		expect( editor.textSelection ).not.toHaveBeenCalled();
+		expect( global.__apiPost ).not.toHaveBeenCalled();
 	} );
 } );
 

@@ -55,11 +55,17 @@ function similarity( a, b ) {
 }
 
 /**
+ * Tokenise for comparison while retaining UTF-16 offsets into the original text.
+ * Combining marks remain part of their word; punctuation separates words.
+ *
  * @param {string} text
- * @return {string}
+ * @return {Array<Object>}
  */
-function normalize( text ) {
-	return text.toLowerCase().replace( /[^\p{L}\p{N}\s]/gu, '' ).replace( /\s+/g, ' ' ).trim();
+function words( text ) {
+	return Array.from( text.matchAll( /[\p{L}\p{N}\p{M}]+/gu ), ( match ) => ( {
+		text: match[ 0 ].normalize( 'NFC' ).toLowerCase(),
+		end: match.index + match[ 0 ].length
+	} ) );
 }
 
 class VoiceRecognition {
@@ -77,7 +83,8 @@ class VoiceRecognition {
 		this.stage = 'wake';
 		this.langIndex = 0;
 		this.languages = [ config.language ].concat( config.fallbackLanguages || [] );
-		this.wakePhrase = normalize( config.wakePhrase || '' );
+		this.wakeWords = words( config.wakePhrase || '' ).map( ( word ) => word.text );
+		this.wakePhrase = this.wakeWords.join( ' ' );
 	}
 
 	/**
@@ -231,14 +238,15 @@ class VoiceRecognition {
 		}
 
 		if ( this.stage === 'wake' ) {
-			const heard = normalize( finalText || interim );
-			if ( heard && this.matchesWakePhrase( heard ) ) {
-				const remainder = this.stripWakePhrase( heard );
+			// Interim hypotheses may be revised (e.g. Wanda -> Rwanda). Only a
+			// final result can wake the assistant or supply executable text.
+			if ( finalText && this.matchesWakePhrase( finalText ) ) {
+				const remainder = this.stripWakePhrase( finalText );
 				this.handlers.onWake();
 				this.stage = 'capture';
 				this.handlers.onStateChange( 'capture' );
 				// Wake phrase and command spoken in one breath.
-				if ( remainder && finalText ) {
+				if ( remainder ) {
 					this.stage = 'processing';
 					this.handlers.onCommand( remainder );
 				}
@@ -250,17 +258,10 @@ class VoiceRecognition {
 			if ( interim ) {
 				this.handlers.onInterim( interim );
 			}
-			let command = finalText.trim();
+			const command = finalText.trim();
 			if ( command ) {
-				// The wake phrase and command may arrive in the same final
-				// result when spoken in one breath.
-				const heard = normalize( command );
-				if ( this.wakePhrase && this.matchesWakePhrase( heard ) ) {
-					command = this.stripWakePhrase( heard );
-					if ( !command ) {
-						return;
-					}
-				}
+				// Capture (including dictation/push-to-talk) is content, not wake
+				// detection. A person's name or quoted wake word must survive.
 				this.stage = 'processing';
 				this.handlers.onCommand( command );
 			}
@@ -268,50 +269,52 @@ class VoiceRecognition {
 	}
 
 	/**
-	 * Fuzzy wake phrase match honouring the configured sensitivity.
+	 * Find a leading, whole-word wake phrase using comparison-only normalisation.
+	 * Never search inside a word or discard words before the wake phrase.
 	 *
-	 * @param {string} heard Normalised transcript
-	 * @return {boolean}
+	 * @param {string} heard Original transcript
+	 * @return {?number} End offset of the matched phrase, or null
 	 */
-	matchesWakePhrase( heard ) {
-		if ( heard.includes( this.wakePhrase ) ) {
-			return true;
+	wakePhraseEnd( heard ) {
+		if ( !this.wakeWords.length ) {
+			return null;
 		}
-		const threshold = Math.min( 1, Math.max( 0, this.config.wakeSensitivity || 0.7 ) );
-		const wakeWordCount = this.wakePhrase.split( ' ' ).length;
-		const words = heard.split( ' ' );
-		// Compare every window of the same word length as the wake phrase.
-		for ( let i = 0; i + wakeWordCount <= words.length; i++ ) {
-			const windowText = words.slice( i, i + wakeWordCount ).join( ' ' );
-			if ( similarity( windowText, this.wakePhrase ) >= threshold ) {
-				return true;
-			}
+		const prefix = words( heard ).slice( 0, this.wakeWords.length );
+		if ( prefix.length !== this.wakeWords.length ) {
+			return null;
 		}
-		return false;
+		// Fuzziness must not reintroduce substring matches such as Rwanda or
+		// Wandaville for Wanda, even though their edit distance may be small.
+		if ( prefix.some( ( word, i ) => word.text !== this.wakeWords[ i ] &&
+			word.text.includes( this.wakeWords[ i ] ) ) ) {
+			return null;
+		}
+		const sensitivity = Number.isFinite( this.config.wakeSensitivity ) ?
+			this.config.wakeSensitivity : 0.7;
+		const threshold = Math.min( 1, Math.max( 0, sensitivity ) );
+		const candidate = prefix.map( ( word ) => word.text ).join( ' ' );
+		return similarity( candidate, this.wakePhrase ) >= threshold ?
+			prefix[ prefix.length - 1 ].end : null;
 	}
 
 	/**
-	 * Remove the wake phrase (or its fuzzy match) from the transcript,
-	 * returning any trailing command text.
+	 * @param {string} heard Original transcript
+	 * @return {boolean}
+	 */
+	matchesWakePhrase( heard ) {
+		return this.wakePhraseEnd( heard ) !== null;
+	}
+
+	/**
+	 * Remove only a matched leading phrase and its speech punctuation separator.
+	 * Slice the original text so command case, punctuation and spacing survive.
 	 *
-	 * @param {string} heard Normalised transcript
+	 * @param {string} heard Original transcript
 	 * @return {string}
 	 */
 	stripWakePhrase( heard ) {
-		const exact = heard.indexOf( this.wakePhrase );
-		if ( exact !== -1 ) {
-			return heard.slice( exact + this.wakePhrase.length ).trim();
-		}
-		const threshold = Math.min( 1, Math.max( 0, this.config.wakeSensitivity || 0.7 ) );
-		const wakeWordCount = this.wakePhrase.split( ' ' ).length;
-		const words = heard.split( ' ' );
-		for ( let i = 0; i + wakeWordCount <= words.length; i++ ) {
-			const windowText = words.slice( i, i + wakeWordCount ).join( ' ' );
-			if ( similarity( windowText, this.wakePhrase ) >= threshold ) {
-				return words.slice( i + wakeWordCount ).join( ' ' ).trim();
-			}
-		}
-		return '';
+		const end = this.wakePhraseEnd( heard );
+		return end === null ? heard : heard.slice( end ).replace( /^[,.:;!?…]*\s*/, '' );
 	}
 
 	/**

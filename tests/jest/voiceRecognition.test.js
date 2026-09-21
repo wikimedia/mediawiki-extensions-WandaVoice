@@ -43,7 +43,7 @@ describe( 'wake phrase matching', () => {
 		expect( recognizer.matchesWakePhrase( 'wanda' ) ).toBe( true );
 	} );
 
-	it( 'matches the wake word inside a longer utterance', () => {
+	it( 'matches the leading wake word in a longer utterance', () => {
 		const recognizer = makeRecognizer();
 		expect( recognizer.matchesWakePhrase( 'wanda navigate to main page' ) ).toBe( true );
 	} );
@@ -66,10 +66,80 @@ describe( 'wake phrase matching', () => {
 		expect( recognizer.matchesWakePhrase( 'wanda' ) ).toBe( true );
 	} );
 
-	it( 'matches multi-word wake phrases in any window position', () => {
+	it( 'matches multi-word wake phrases only at the beginning', () => {
 		const recognizer = makeRecognizer( { wakePhrase: 'hey wanda' } );
-		expect( recognizer.matchesWakePhrase( 'okay hey wanda open history' ) ).toBe( true );
+		expect( recognizer.matchesWakePhrase( 'hey wanda open history' ) ).toBe( true );
+		expect( recognizer.matchesWakePhrase( 'okay hey wanda open history' ) ).toBe( false );
 		expect( recognizer.matchesWakePhrase( 'nothing to see here' ) ).toBe( false );
+	} );
+
+	describe.each( [ undefined, 0.7, 1 ] )( 'whole-word boundaries at sensitivity %s', ( wakeSensitivity ) => {
+		it.each( [ 'Rwanda', 'Wandas', 'Wandaville', 'preWanda', 'Wanda123' ] )(
+			'rejects the embedded wake word in %s', ( word ) => {
+				const recognizer = makeRecognizer( { wakeSensitivity } );
+				const heard = word + ', Type Keep Case!';
+
+				expect( recognizer.matchesWakePhrase( heard ) ).toBe( false );
+				expect( recognizer.wakePhraseEnd( heard ) ).toBeNull();
+				expect( recognizer.stripWakePhrase( heard ) ).toBe( heard );
+			}
+		);
+	} );
+
+	it.each( [
+		[ 'wanda', 'We discussed Wanda, Type Hello!' ],
+		[ 'wanda', 'Please ask Wonda for help' ],
+		[ 'hey wanda', 'Okay, hey Wanda: save' ],
+		[ 'hey wanda', 'Hey Rwanda: save' ],
+		[ 'hey wanda', 'Heys Wanda: save' ],
+		[ 'hey wanda', 'Hey' ],
+		[ 'wanda', '' ],
+		[ 'wanda', ' ,:!?…\n' ]
+	] )( 'rejects a nonleading or incomplete %s in %j', ( wakePhrase, heard ) => {
+		const recognizer = makeRecognizer( { wakePhrase } );
+
+		expect( recognizer.matchesWakePhrase( heard ) ).toBe( false );
+		expect( recognizer.wakePhraseEnd( heard ) ).toBeNull();
+		expect( recognizer.stripWakePhrase( heard ) ).toBe( heard );
+	} );
+
+	it.each( [
+		[ undefined, true ], [ NaN, true ], [ 0.7, true ],
+		[ 0.8, true ], [ 0.81, false ], [ 1, false ]
+	] )( 'matches mixed-case Wonda according to sensitivity %s', ( wakeSensitivity, expected ) => {
+		const recognizer = makeRecognizer( { wakePhrase: 'WaNdA', wakeSensitivity } );
+
+		expect( recognizer.matchesWakePhrase( 'WoNdA: Type NASA!' ) ).toBe( expected );
+	} );
+
+	it.each( [ '', ' \t\n', ',:;!?…', null, undefined ] )(
+		'treats a wordless configuration %j as no wake phrase', ( wakePhrase ) => {
+			const recognizer = makeRecognizer( { wakePhrase } );
+			const heard = '  Wanda, Keep This!\n';
+
+			expect( recognizer.matchesWakePhrase( heard ) ).toBe( false );
+			expect( recognizer.wakePhraseEnd( heard ) ).toBeNull();
+			expect( recognizer.stripWakePhrase( heard ) ).toBe( heard );
+		}
+	);
+} );
+
+describe( 'wakePhraseEnd original UTF-16 offsets', () => {
+	it.each( [
+		[ 'WaNdA', '  WANDA: Type NASA!', 7 ],
+		[ 'wánda', '😀 WA\u0301NDA: École!', 9 ],
+		[ 'WA\u0301NDA', 'Wánda: École!', 5 ],
+		[ 'école', '\tE\u0301COLE: Bonjour!', 7 ],
+		[ 'i\u0307', 'İ: Keep Case!', 1 ],
+		[ '𐐨', '😀 𐐀: Keep Case!', 5 ],
+		[ '你好', '你好: 世界!', 2 ],
+		[ 'hey wánda', '😀 HEY,\nWA\u0301NDA: Type NASA!', 14 ],
+		[ 'HEY, Wanda!', 'hey—WANDA: Type NASA!', 9 ]
+	] )( 'normalizes %j against %j without changing the end offset', ( wakePhrase, heard, end ) => {
+		const recognizer = makeRecognizer( { wakePhrase, wakeSensitivity: 1 } );
+
+		expect( recognizer.matchesWakePhrase( heard ) ).toBe( true );
+		expect( recognizer.wakePhraseEnd( heard ) ).toBe( end );
 	} );
 } );
 
@@ -95,6 +165,40 @@ describe( 'stripWakePhrase', () => {
 		const recognizer = makeRecognizer( { wakePhrase: 'hey wanda' } );
 		expect( recognizer.stripWakePhrase( 'hey wanda edit section 2' ) )
 			.toBe( 'edit section 2' );
+	} );
+
+	it.each( [
+		[ 'wanda', 'WaNdA, Type NASA!', 'Type NASA!' ],
+		[ 'wanda', 'WoNdA: Type Hello, NASA!', 'Type Hello, NASA!' ],
+		[ 'wanda', 'WANDA,.:;!?…\t\nType [[Main Page|NASA]]!', 'Type [[Main Page|NASA]]!' ],
+		[ 'wanda', 'Wanda: Type https://Example.org/Path?Q=NASA#Top!', 'Type https://Example.org/Path?Q=NASA#Top!' ],
+		[ 'wanda', 'Wanda, Type 你好  Café\n\n日本語!  ', 'Type 你好  Café\n\n日本語!  ' ],
+		[ 'wánda', '😀 WA\u0301NDA: Type E\u0301cole!', 'Type E\u0301cole!' ],
+		[ 'WA\u0301NDA', 'WÁNDA: Type École!', 'Type École!' ],
+		[ 'hey wanda', 'HEY,\nWANDA: Type Hello!', 'Type Hello!' ],
+		[ 'hey, wanda!', 'Hey—Wanda! Type Hello!', 'Type Hello!' ],
+		[ 'wanda', 'Wanda: Wanda, Tell Wonda About Rwanda!', 'Wanda, Tell Wonda About Rwanda!' ],
+		[ 'wanda', 'Wanda, \n: Keep This!', ': Keep This!' ],
+		[ 'wanda', 'Wanda "Quoted Text!"', '"Quoted Text!"' ],
+		[ 'wanda', 'Wanda—Keep This!', '—Keep This!' ],
+		[ 'wanda', 'Wanda,:;.!?… \n', '' ],
+		[ 'hey wanda', 'HEY, WANDA!\n', '' ]
+	] )( 'strips only the leading %j and adjacent separators from %j', ( wakePhrase, heard, expected ) => {
+		const recognizer = makeRecognizer( { wakePhrase } );
+
+		const command = recognizer.stripWakePhrase( heard );
+
+		expect( command ).toBe( expected );
+	} );
+
+	it.each( [
+		'  Rwanda, Type Hello!\n',
+		'We asked Wanda: Type https://Example.org/Path?Q=NASA!',
+		'  你好  E\u0301cole\n日本語!  '
+	] )( 'returns unmatched input byte-for-byte unchanged: %j', ( heard ) => {
+		const recognizer = makeRecognizer();
+
+		expect( recognizer.stripWakePhrase( heard ) ).toBe( heard );
 	} );
 } );
 
@@ -133,7 +237,7 @@ describe( 'result handling state machine', () => {
 		recognizer.handleResult( makeEvent( 'Wanda, navigate to Main Page', true ) );
 
 		expect( events.wakes ).toBe( 1 );
-		expect( events.commands ).toEqual( [ 'navigate to main page' ] );
+		expect( events.commands ).toEqual( [ 'navigate to Main Page' ] );
 		expect( recognizer.stage ).toBe( 'processing' );
 	} );
 
@@ -173,13 +277,34 @@ describe( 'result handling state machine', () => {
 		expect( recognizer.stage ).toBe( 'processing' );
 	} );
 
-	it( 'strips a leading wake word from a captured command', () => {
+	it.each( [
+		[ 'Wanda save', 'Wanda save' ],
+		[ '  Rwanda, NASA!\n', 'Rwanda, NASA!' ],
+		[ 'WoNdA: https://Example.org/Path?Q=NASA!', 'WoNdA: https://Example.org/Path?Q=NASA!' ],
+		[ '\tWanda, 你好  E\u0301cole\nWanda!  ', 'Wanda, 你好  E\u0301cole\nWanda!' ],
+		[ 'Wanda', 'Wanda' ],
+		[ '!?', '!?' ]
+	] )( 'preserves captured content apart from outer whitespace: %j', ( heard, expected ) => {
 		const { recognizer, events } = makeTracked();
 		recognizer.enabled = true;
 		recognizer.stage = 'capture';
 
-		recognizer.handleResult( makeEvent( 'Wanda save', true ) );
-		expect( events.commands ).toEqual( [ 'save' ] );
+		recognizer.handleResult( makeEvent( heard, true ) );
+
+		expect( events.commands ).toEqual( [ expected ] );
+		expect( events.wakes ).toBe( 0 );
+		expect( recognizer.stage ).toBe( 'processing' );
+	} );
+
+	it.each( [ '', ' \t\n' ] )( 'keeps capturing when a final result is empty after trimming: %j', ( heard ) => {
+		const { recognizer, events } = makeTracked();
+		recognizer.enabled = true;
+		recognizer.stage = 'capture';
+
+		recognizer.handleResult( makeEvent( heard, true ) );
+
+		expect( events.commands ).toEqual( [] );
+		expect( recognizer.stage ).toBe( 'capture' );
 	} );
 } );
 
@@ -255,8 +380,8 @@ describe( 'listening lifecycle', () => {
 		expect( created[ 0 ].lang ).toBe( 'en-US' );
 	} );
 
-	it( 'starts directly in capture stage without a wake phrase', () => {
-		const { recognizer } = makeTracked( { wakePhrase: '' } );
+	it.each( [ '', ' \t\n', ',:!?…' ] )( 'starts directly in capture stage with wordless wake phrase %j', ( wakePhrase ) => {
+		const { recognizer } = makeTracked( { wakePhrase } );
 		recognizer.start();
 		expect( recognizer.stage ).toBe( 'capture' );
 	} );
@@ -308,6 +433,136 @@ describe( 'listening lifecycle', () => {
 
 		recognizer.stop();
 		expect( created[ 0 ].onend ).toBeNull();
+	} );
+
+	describe( 'final-only wake and raw capture regressions', () => {
+		it( 'uses only new final text, not interim hypotheses or earlier result history', () => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const current = created[ 0 ];
+			const unrelated = makeEvent( 'Rwanda, Type Wrong!', true ).results[ 0 ];
+			const interim = makeEvent( 'Wanda, Type Premature!', false ).results[ 0 ];
+
+			current.onresult( { resultIndex: 0, results: [ unrelated, interim ] } );
+			expect( events.wakes ).toBe( 0 );
+			expect( events.commands ).toEqual( [] );
+			expect( recognizer.stage ).toBe( 'wake' );
+			// Web Speech retains previous results; resultIndex marks the first changed one.
+			current.onresult( {
+				resultIndex: 1,
+				results: [ unrelated, makeEvent( 'Wanda: Type Final!', true ).results[ 0 ], interim ]
+			} );
+
+			expect( events.wakes ).toBe( 1 );
+			expect( events.commands ).toEqual( [ 'Type Final!' ] );
+			expect( events.interims ).toEqual( [] );
+			expect( recognizer.stage ).toBe( 'processing' );
+		} );
+
+		it.each( [
+			'Rwanda, Type Hello!', 'Wandas, Type Hello!', 'Wandaville, Type Hello!',
+			'We asked Wanda to Type Hello!', 'Unrelated conversation'
+		] )( 'ignores repeated wake hypotheses revised to %j', ( finalText ) => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const current = created[ 0 ];
+
+			for ( const interim of [ 'Wanda', 'Wanda, Type', 'Wanda, Type Hello!' ] ) {
+				current.onresult( makeEvent( interim, false ) );
+				expect( recognizer.stage ).toBe( 'wake' );
+				expect( events ).toEqual( {
+					wakes: 0, commands: [], interims: [], states: [ 'wake' ], errors: []
+				} );
+			}
+			current.onresult( makeEvent( finalText, true ) );
+
+			expect( recognizer.stage ).toBe( 'wake' );
+			expect( events ).toEqual( {
+				wakes: 0, commands: [], interims: [], states: [ 'wake' ], errors: []
+			} );
+		} );
+
+		it.each( [ 'Wanda', 'WoNdA' ] )( 'emits only the final command after repeated %s hypotheses', ( wake ) => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const current = created[ 0 ];
+			const finalText = wake + ': Type Wanda, NASA!';
+
+			for ( const text of [ wake, wake + ': Type', finalText, finalText ] ) {
+				current.onresult( makeEvent( text, false ) );
+			}
+			expect( recognizer.stage ).toBe( 'wake' );
+			expect( events.commands ).toEqual( [] );
+			expect( events.wakes ).toBe( 0 );
+			current.onresult( makeEvent( finalText, true ) );
+			// Further results while the command is processing cannot duplicate execution.
+			current.onresult( makeEvent( finalText, false ) );
+			current.onresult( makeEvent( finalText, true ) );
+
+			expect( events.wakes ).toBe( 1 );
+			expect( events.commands ).toEqual( [ 'Type Wanda, NASA!' ] );
+			expect( events.interims ).toEqual( [] );
+			expect( events.states ).toEqual( [ 'wake', 'capture' ] );
+			expect( recognizer.stage ).toBe( 'processing' );
+		} );
+
+		it.each( [ 'Wanda', 'Rwanda' ] )( 'captures %s as content after a punctuation-only wake remainder', ( name ) => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const current = created[ 0 ];
+			const content = name + ',  NASA!\n你好';
+
+			current.onresult( makeEvent( 'Wanda,!?…\n', true ) );
+			expect( recognizer.stage ).toBe( 'capture' );
+			expect( events.wakes ).toBe( 1 );
+			expect( events.commands ).toEqual( [] );
+			current.onresult( makeEvent( content, false ) );
+			current.onresult( makeEvent( '  ' + content + '\n', true ) );
+
+			expect( events.interims ).toEqual( [ content ] );
+			expect( events.commands ).toEqual( [ content ] );
+			expect( events.wakes ).toBe( 1 );
+			expect( recognizer.stage ).toBe( 'processing' );
+		} );
+
+		it.each( [
+			'Wanda, Type NASA!', 'Rwanda: Beautiful!',
+			'WoNdA: https://Example.org/Path?Q=NASA!', 'Wanda, 你好  E\u0301cole\nWanda!'
+		] )( 'preserves push-to-talk content %j despite a configured wake phrase', ( content ) => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			recognizer.captureNow();
+
+			created[ 0 ].onresult( makeEvent( content, false ) );
+			created[ 0 ].onresult( makeEvent( '\t' + content + '  ', true ) );
+
+			expect( events.interims ).toEqual( [ content ] );
+			expect( events.commands ).toEqual( [ content ] );
+			expect( events.wakes ).toBe( 0 );
+			expect( recognizer.stage ).toBe( 'processing' );
+		} );
+
+		it( 'does not leak a pending wake hypothesis through stop and restart', () => {
+			const { recognizer, events } = makeTracked();
+			recognizer.start();
+			const queuedResult = created[ 0 ].onresult;
+			queuedResult( makeEvent( 'Wanda, Type Stale!', false ) );
+			recognizer.stop();
+			recognizer.start();
+
+			queuedResult( makeEvent( 'Wanda, Type Stale!', true ) );
+			created[ 1 ].onresult( makeEvent( 'Rwanda, Type Unrelated!', true ) );
+			expect( recognizer.stage ).toBe( 'wake' );
+			expect( events.wakes ).toBe( 0 );
+			expect( events.commands ).toEqual( [] );
+			created[ 1 ].onresult( makeEvent( 'Wanda: Type Current!', true ) );
+
+			expect( events.wakes ).toBe( 1 );
+			expect( events.commands ).toEqual( [ 'Type Current!' ] );
+			expect( events.interims ).toEqual( [] );
+			expect( events.states ).toEqual( [ 'wake', 'off', 'wake', 'capture' ] );
+			expect( recognizer.stage ).toBe( 'processing' );
+		} );
 	} );
 
 	describe( 'fatal error usability regressions', () => {
