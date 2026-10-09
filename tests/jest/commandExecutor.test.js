@@ -39,6 +39,10 @@ function makeTextarea( contents ) {
 					return textarea.selection;
 				case 'getCaretPosition':
 					return textarea.caret;
+				case 'setSelection':
+					textarea.caret = arg.start;
+					textarea.selection = textarea.value.slice( arg.start, arg.end );
+					return textarea;
 				case 'replaceSelection':
 					textarea.value = textarea.value.slice( 0, textarea.caret ) + arg +
 						textarea.value.slice( textarea.caret );
@@ -209,6 +213,75 @@ describe( 'editor actions', () => {
 		}
 		expect( executor.undoStack ).toHaveLength( 50 );
 	} );
+
+	it( 'selects all text in wikitext editor', async () => {
+		const textarea = makeTextarea( 'Hello world' );
+		global.$ = () => textarea;
+		const { executor, feedback } = makeExecutor();
+
+		await executor.executeActions( [
+			{ type: 'select', scope: 'all', status: 'ready', feedback: 'selected all' }
+		] );
+
+		expect( textarea.calls ).toContainEqual(
+			[ 'setSelection', { start: 0, end: 11 } ]
+		);
+		expect( feedback ).toContain( 'selected all' );
+	} );
+
+	it( 'selects previous sentence in wikitext editor', async () => {
+		const textarea = makeTextarea( 'First sentence. Second sentence here. ' );
+		textarea.caret = textarea.value.length;
+		global.$ = () => textarea;
+		const { executor } = makeExecutor();
+
+		await executor.executeActions( [
+			{ type: 'select', scope: 'previous_sentence', target: 'sentence', status: 'ready' }
+		] );
+
+		expect( textarea.calls ).toContainEqual(
+			[ 'setSelection', { start: 16, end: 37 } ]
+		);
+	} );
+
+	it( 'moves cursor to start and end in wikitext editor', async () => {
+		const textarea = makeTextarea( 'Hello world' );
+		global.$ = () => textarea;
+		const { executor } = makeExecutor();
+
+		await executor.executeActions( [
+			{ type: 'cursor', position: 'start', status: 'ready' },
+			{ type: 'cursor', position: 'end', status: 'ready' }
+		] );
+
+		expect( textarea.calls ).toContainEqual( [ 'setSelection', { start: 0, end: 0 } ] );
+		expect( textarea.calls ).toContainEqual( [ 'setSelection', { start: 11, end: 11 } ] );
+	} );
+
+	it( 'replaces text in wikitext editor and reports if not found', async () => {
+		const textarea = makeTextarea( 'The quick brown fox' );
+		global.$ = () => textarea;
+		const { executor, feedback } = makeExecutor();
+
+		await executor.executeActions( [
+			{
+				type: 'replace_text',
+				find: 'brown',
+				replacement: 'red',
+				status: 'ready',
+				feedback: 'replaced'
+			}
+		] );
+
+		expect( textarea.value ).toBe( 'The quick red fox' );
+		expect( feedback ).toContain( 'replaced' );
+
+		await executor.executeActions( [
+			{ type: 'replace_text', find: 'missing', replacement: 'new', status: 'ready' }
+		] );
+
+		expect( feedback ).toContain( 'wandavoice-feedback-replace-not-found:missing' );
+	} );
 } );
 
 describe( 'save and preview', () => {
@@ -264,18 +337,52 @@ describe( 'VisualEditor actions', () => {
 		const annotations = [];
 		const commandsExecuted = [];
 		let undoCount = 0;
+		let linearSelection = null;
+		let docText = 'First sentence. Second sentence here.';
 
 		const fragment = {
 			insertContent: ( content ) => insertedContent.push( content ),
 			annotateContent: ( method, style ) => annotations.push( [ method, style ] ),
 			clearAnnotations: () => annotations.push( [ 'clear' ] ),
 			getText: () => 'selected text',
-			getRange: () => ( { isCollapsed: () => true, start: 5 } ),
-			getTextBefore: () => 'Hello'
+			getRange: () => ( { isCollapsed: () => true, start: docText.length } ),
+			getTextBefore: () => docText,
+			selectAll: () => {
+				linearSelection = { start: 0, end: docText.length };
+			},
+			selectPreviousSentence: () => {
+				linearSelection = { start: 16, end: 36 };
+			},
+			collapseToStart: () => ( {
+				select: () => {
+					linearSelection = { start: 0, end: 0 };
+				}
+			} ),
+			collapseToEnd: () => ( {
+				select: () => {
+					linearSelection = { start: docText.length, end: docText.length };
+				}
+			} )
+		};
+
+		const doc = {
+			getText: ( range ) => range ? docText.slice( range.start, range.end ) : docText,
+			getLength: () => docText.length
 		};
 
 		const model = {
 			getFragment: () => fragment,
+			getDocument: () => doc,
+			setLinearSelection: ( range ) => {
+				linearSelection = range;
+			},
+			getLinearFragment: ( range ) => ( {
+				insertContent: ( content ) => {
+					docText = docText.slice( 0, range.start ) + content +
+						docText.slice( range.end );
+					insertedContent.push( content );
+				}
+			} ),
 			undo: () => {
 				undoCount++;
 			}
@@ -293,6 +400,20 @@ describe( 'VisualEditor actions', () => {
 		global.window.ve = {
 			init: {
 				target: target
+			},
+			Range: function ( start, end ) {
+				this.start = start;
+				this.end = end;
+			},
+			dm: {
+				MWInternalLinkAnnotation: function ( element ) {
+					this.name = 'MWInternalLinkAnnotation';
+					this.element = element;
+				},
+				MWExternalLinkAnnotation: function ( element ) {
+					this.name = 'MWExternalLinkAnnotation';
+					this.element = element;
+				}
 			}
 		};
 
@@ -304,6 +425,8 @@ describe( 'VisualEditor actions', () => {
 			insertedContent,
 			annotations,
 			commandsExecuted,
+			getLinearSelection: () => linearSelection,
+			getDocText: () => docText,
 			getUndoCount: () => undoCount
 		};
 	}
@@ -337,6 +460,116 @@ describe( 'VisualEditor actions', () => {
 			[ 'set', 'italic' ],
 			[ 'clear' ]
 		] );
+	} );
+
+	it( 'creates headings, bullet and numbered lists in VisualEditor', async () => {
+		const { executor } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'heading', level: 3, text: 'Ancient Rome', status: 'ready' },
+			{ type: 'bullet', text: 'First item', status: 'ready' },
+			{ type: 'number', text: 'Step one', status: 'ready' }
+		] );
+
+		expect( veMock.commandsExecuted ).toContain( 'heading3' );
+		expect( veMock.commandsExecuted ).toContain( 'bullet' );
+		expect( veMock.commandsExecuted ).toContain( 'number' );
+		expect( veMock.insertedContent ).toContain( 'Ancient Rome' );
+		expect( veMock.insertedContent ).toContain( 'First item' );
+		expect( veMock.insertedContent ).toContain( 'Step one' );
+	} );
+
+	it( 'applies blockquote, code, and other styles in VisualEditor', async () => {
+		const { executor } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'format', style: 'blockquote', status: 'ready' },
+			{ type: 'format', style: 'code', status: 'ready' },
+			{ type: 'format', style: 'underline', status: 'ready' }
+		] );
+
+		expect( veMock.commandsExecuted ).toContain( 'blockquote' );
+		expect( veMock.annotations ).toContainEqual( [ 'set', 'code' ] );
+		expect( veMock.annotations ).toContainEqual( [ 'set', 'underline' ] );
+	} );
+
+	it( 'creates internal and external links using VE annotations', async () => {
+		const { executor } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'link', target: 'Paris', text: 'Capital of France', status: 'ready' },
+			{
+				type: 'link',
+				url: 'https://example.org',
+				text: 'Example site',
+				isExternal: true,
+				status: 'ready'
+			}
+		] );
+
+		expect( veMock.insertedContent ).toContain( 'Capital of France' );
+		expect( veMock.insertedContent ).toContain( 'Example site' );
+		const hasInternal = veMock.annotations.some( ( [ method, ann ] ) => method === 'set' &&
+			ann && ann.name === 'MWInternalLinkAnnotation' &&
+			ann.element.attributes.title === 'Paris' );
+		expect( hasInternal ).toBe( true );
+		const hasExternal = veMock.annotations.some( ( [ method, ann ] ) => method === 'set' &&
+			ann && ann.name === 'MWExternalLinkAnnotation' &&
+			ann.element.attributes.href === 'https://example.org' );
+		expect( hasExternal ).toBe( true );
+	} );
+
+	it( 'triggers citation and template inspectors in VisualEditor', async () => {
+		const { executor } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'reference', text: 'Ref content', status: 'ready' },
+			{ type: 'template', name: 'citation needed', status: 'ready' }
+		] );
+
+		expect( veMock.commandsExecuted ).toContain( 'reference' );
+		expect( veMock.commandsExecuted ).toContain( 'transclusion' );
+	} );
+
+	it( 'selects text, navigates cursor, and replaces text in VisualEditor', async () => {
+		const { executor, feedback } = makeExecutor();
+		const veMock = makeVeSurface();
+
+		await executor.executeActions( [
+			{ type: 'select', scope: 'all', status: 'ready' }
+		] );
+		expect( veMock.getLinearSelection() ).toEqual( { start: 0, end: 37 } );
+
+		await executor.executeActions( [
+			{ type: 'select', scope: 'previous_sentence', target: 'sentence', status: 'ready' }
+		] );
+		expect( veMock.getLinearSelection() ).toEqual( { start: 16, end: 36 } );
+
+		await executor.executeActions( [
+			{ type: 'cursor', position: 'start', status: 'ready' }
+		] );
+		expect( veMock.getLinearSelection() ).toEqual( { start: 0, end: 0 } );
+
+		await executor.executeActions( [
+			{ type: 'cursor', position: 'end', status: 'ready' }
+		] );
+		expect( veMock.getLinearSelection() ).toEqual( { start: 37, end: 37 } );
+
+		await executor.executeActions( [
+			{
+				type: 'replace_text',
+				find: 'Second',
+				replacement: 'Next',
+				status: 'ready',
+				feedback: 'replaced ve'
+			}
+		] );
+		expect( veMock.getDocText() ).toContain( 'Next sentence' );
+		expect( feedback ).toContain( 'replaced ve' );
 	} );
 
 	it( 'triggers save, preview, and undo in VisualEditor', async () => {

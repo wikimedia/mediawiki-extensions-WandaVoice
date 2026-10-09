@@ -210,6 +210,45 @@ class CommandProcessor {
 			}, mw.message( 'wandavoice-feedback-navigating', talkPage ).text() );
 		}
 
+		m = control.match( /^select (?:all|everything)(?: text)?$/i );
+		if ( m ) {
+			return this.simple( 'select', {
+				scope: 'all'
+			}, mw.message( 'wandavoice-feedback-selected-all' ).text() );
+		}
+
+		m = control.match( /^select (?:the )?(?:previous|last) sentence$/i );
+		if ( m ) {
+			return this.simple( 'select', {
+				scope: 'previous_sentence',
+				target: 'sentence'
+			}, mw.message( 'wandavoice-feedback-selected-sentence' ).text() );
+		}
+
+		m = control.match( /^(?:go|move|jump|navigate)(?: cursor)? to (?:the )?(?:end|bottom) of (?:the )?(?:document|page|editor)$/i );
+		if ( m ) {
+			return this.simple( 'cursor', {
+				position: 'end'
+			}, mw.message( 'wandavoice-feedback-cursor-moved' ).text() );
+		}
+
+		m = control.match( /^(?:go|move|jump|navigate)(?: cursor)? to (?:the )?(?:start|top|beginning) of (?:the )?(?:document|page|editor)$/i );
+		if ( m ) {
+			return this.simple( 'cursor', {
+				position: 'start'
+			}, mw.message( 'wandavoice-feedback-cursor-moved' ).text() );
+		}
+
+		m = command.match( /^replace (.+?) with (.+)$/i );
+		if ( m ) {
+			const findText = m[ 1 ].trim();
+			const replaceText = m[ 2 ].trim();
+			return this.simple( 'replace_text', {
+				find: findText,
+				replacement: replaceText
+			}, mw.message( 'wandavoice-feedback-replaced', findText, replaceText ).text() );
+		}
+
 		m = command.match( /^(?:navigate|go|take me|open page|visit|jump)(?: to)? (?:the )?(.+)$/i ) ||
 			command.match( /^open (?:the )?page (.+)$/i );
 		if ( m ) {
@@ -363,6 +402,8 @@ class CommandProcessor {
 		m = command.match( /^(?:create|insert|add) (?:a )?link (?:to|for) (.+?) (?:labeled|as|with text) (.+)$/i );
 		if ( m ) {
 			return this.simple( 'link', {
+				target: m[ 1 ],
+				text: m[ 2 ],
 				wikitext: '[[' + m[ 1 ] + '|' + m[ 2 ] + ']]'
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
@@ -370,9 +411,12 @@ class CommandProcessor {
 		m = command.match( /^(?:create|insert|add) (?:an? )?external link (?:to )?(https?:\/\/\S+)(?: (?:labeled|with text|as) (.+))?$/i );
 		if ( m ) {
 			const url = m[ 1 ];
-			const label = m[ 2 ] ? ' ' + m[ 2 ] : '';
+			const label = m[ 2 ] ? m[ 2 ].trim() : '';
 			return this.simple( 'link', {
-				wikitext: '[' + url + label + ']'
+				url: url,
+				text: label,
+				isExternal: true,
+				wikitext: '[' + url + ( label ? ' ' + label : '' ) + ']'
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
 
@@ -459,6 +503,8 @@ class CommandProcessor {
 			command.match( /^link to (.+)$/i );
 		if ( m ) {
 			return this.simple( 'link', {
+				target: m[ 1 ],
+				text: m[ 1 ],
 				wikitext: '[[' + m[ 1 ] + ']]'
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
@@ -471,6 +517,8 @@ class CommandProcessor {
 			const level = Math.max( 1, Math.min( 6, parseInt( levelNum, 10 ) ) );
 			const markup = '='.repeat( level );
 			return this.simple( 'heading', {
+				level: level,
+				text: nameText,
 				wikitext: '\n' + markup + ' ' + nameText + ' ' + markup + '\n'
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
@@ -479,6 +527,7 @@ class CommandProcessor {
 			command.match( /^bullet point (.+)$/i );
 		if ( m ) {
 			return this.simple( 'bullet', {
+				text: m[ 1 ],
 				wikitext: '\n* ' + m[ 1 ]
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
@@ -487,6 +536,7 @@ class CommandProcessor {
 			command.match( /^numbered (?:point|item) (.+)$/i );
 		if ( m ) {
 			return this.simple( 'number', {
+				text: m[ 1 ],
 				wikitext: '\n# ' + m[ 1 ]
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
@@ -501,6 +551,7 @@ class CommandProcessor {
 		m = command.match( /^(?:create|insert|add) (?:a )?(?:reference|footnote) (.+)$/i );
 		if ( m ) {
 			return this.simple( 'reference', {
+				text: m[ 1 ],
 				wikitext: '<ref>' + m[ 1 ] + '</ref>'
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
@@ -522,6 +573,7 @@ class CommandProcessor {
 		m = control.match( /^(?:add|insert) citation needed$/i );
 		if ( m ) {
 			return this.simple( 'template', {
+				name: 'citation needed',
 				wikitext: '{{citation needed}}'
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}
@@ -530,6 +582,7 @@ class CommandProcessor {
 		if ( m && ( m[ 1 ] || m[ 2 ] ) ) {
 			const name = ( m[ 1 ] || m[ 2 ] ).trim();
 			return this.simple( 'template', {
+				name: name,
 				wikitext: '{{' + name + '}}'
 			}, mw.message( 'wandavoice-feedback-inserted' ).text() );
 		}

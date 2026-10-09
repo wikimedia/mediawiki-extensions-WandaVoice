@@ -91,7 +91,12 @@
 				"wandavoice-feedback-cancelled",
 				"wandavoice-feedback-dictation-on",
 				"wandavoice-feedback-dictation-off",
-				"wandavoice-feedback-resume"
+				"wandavoice-feedback-resume",
+				"wandavoice-feedback-selected-all",
+				"wandavoice-feedback-selected-sentence",
+				"wandavoice-feedback-cursor-moved",
+				"wandavoice-feedback-replaced",
+				"wandavoice-feedback-replace-not-found"
 			],
 			"targets": [
 				"desktop",

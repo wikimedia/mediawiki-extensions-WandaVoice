@@ -68,6 +68,11 @@
 	"wandavoice-feedback-resume": "Message shown after a multi-step voice command continued on a newly loaded page.",
 	"wandavoice-feedback-page-not-found": "Spoken message when a page could not be resolved. Parameters:\n* $1 - the spoken page name",
 	"wandavoice-feedback-no-permission": "Spoken message when the user lacks edit permission. Parameters:\n* $1 - the page title",
+	"wandavoice-feedback-selected-all": "Spoken confirmation when all text in the editor is selected.",
+	"wandavoice-feedback-selected-sentence": "Spoken confirmation when the previous sentence is selected.",
+	"wandavoice-feedback-cursor-moved": "Spoken confirmation when the cursor position has moved.",
+	"wandavoice-feedback-replaced": "Spoken confirmation after text replacement. Parameters:\n* $1 - the search term\n* $2 - the replacement text",
+	"wandavoice-feedback-replace-not-found": "Spoken message when text to replace could not be found. Parameters:\n* $1 - the search term",
 	"wandavoice-section-introduction": "Name used for the lead section (section 0) of a page in spoken feedback.",
 	"wandavoice-section-number": "Name used for a section referenced by number in spoken feedback. Parameters:\n* $1 - the section number"
 }

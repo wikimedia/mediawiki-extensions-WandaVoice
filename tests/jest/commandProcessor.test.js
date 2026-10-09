@@ -87,6 +87,58 @@ describe( 'local command grammar', () => {
 			.toBe( 'stop_listening' );
 	} );
 
+	it( 'parses select all and select previous sentence commands', async () => {
+		const selectAll = await makeProcessor().process( 'select all text' );
+		expect( selectAll.actions[ 0 ].type ).toBe( 'select' );
+		expect( selectAll.actions[ 0 ].scope ).toBe( 'all' );
+
+		const selectSentence = await makeProcessor().process( 'select the previous sentence' );
+		expect( selectSentence.actions[ 0 ].type ).toBe( 'select' );
+		expect( selectSentence.actions[ 0 ].scope ).toBe( 'previous_sentence' );
+		expect( selectSentence.actions[ 0 ].target ).toBe( 'sentence' );
+	} );
+
+	it( 'parses cursor navigation commands', async () => {
+		const goEnd = await makeProcessor().process( 'go to end of document' );
+		expect( goEnd.actions[ 0 ].type ).toBe( 'cursor' );
+		expect( goEnd.actions[ 0 ].position ).toBe( 'end' );
+
+		const goStart = await makeProcessor().process( 'move cursor to start of document' );
+		expect( goStart.actions[ 0 ].type ).toBe( 'cursor' );
+		expect( goStart.actions[ 0 ].position ).toBe( 'start' );
+	} );
+
+	it( 'parses replace text commands', async () => {
+		const result = await makeProcessor().process( 'replace ancient with modern' );
+		expect( result.actions[ 0 ].type ).toBe( 'replace_text' );
+		expect( result.actions[ 0 ].find ).toBe( 'ancient' );
+		expect( result.actions[ 0 ].replacement ).toBe( 'modern' );
+	} );
+
+	it( 'includes metadata for structured VE commands', async () => {
+		const heading = await makeProcessor().process( 'create heading level 3 called history' );
+		expect( heading.actions[ 0 ].level ).toBe( 3 );
+		expect( heading.actions[ 0 ].text ).toBe( 'history' );
+
+		const linkWithText = await makeProcessor().process( 'insert link to Paris labeled Capital' );
+		expect( linkWithText.actions[ 0 ].target ).toBe( 'Paris' );
+		expect( linkWithText.actions[ 0 ].text ).toBe( 'Capital' );
+
+		const extLink = await makeProcessor().process( 'insert external link https://example.org labeled Example' );
+		expect( extLink.actions[ 0 ].url ).toBe( 'https://example.org' );
+		expect( extLink.actions[ 0 ].text ).toBe( 'Example' );
+		expect( extLink.actions[ 0 ].isExternal ).toBe( true );
+
+		const numList = await makeProcessor().process( 'create numbered list First item' );
+		expect( numList.actions[ 0 ].text ).toBe( 'First item' );
+
+		const ref = await makeProcessor().process( 'create reference Book Title' );
+		expect( ref.actions[ 0 ].text ).toBe( 'Book Title' );
+
+		const tmpl = await makeProcessor().process( 'insert template infobox' );
+		expect( tmpl.actions[ 0 ].name ).toBe( 'infobox' );
+	} );
+
 	it( 'expands custom command shortcuts', async () => {
 		const processor = makeProcessor( {
 			customCommands: { 'quick save': 'save changes with summary minor edit' }

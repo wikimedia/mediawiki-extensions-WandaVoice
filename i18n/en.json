@@ -68,6 +68,11 @@
 	"wandavoice-feedback-resume": "Continued the command on this page. Activate the microphone to keep using voice control.",
 	"wandavoice-feedback-page-not-found": "I could not find a page called $1.",
 	"wandavoice-feedback-no-permission": "You do not have permission to edit $1.",
+	"wandavoice-feedback-selected-all": "Selected all text.",
+	"wandavoice-feedback-selected-sentence": "Selected previous sentence.",
+	"wandavoice-feedback-cursor-moved": "Moved cursor.",
+	"wandavoice-feedback-replaced": "Replaced \"$1\" with \"$2\".",
+	"wandavoice-feedback-replace-not-found": "Could not find \"$1\" to replace.",
 	"wandavoice-section-introduction": "the introduction",
 	"wandavoice-section-number": "section $1"
 }

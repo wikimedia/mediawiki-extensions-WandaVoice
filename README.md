@@ -177,6 +177,9 @@ $wgWandaVoiceOfflineCommands = [ 'save', 'preview', 'undo', 'cancel', 'stop list
    | "Add citation needed" | `{{citation needed}}` |
    | "Create bullet point First item" | `* First item` |
    | "Start dictation" … "stop dictation" | Inserts spoken sentences as text |
+   | "Select all" / "Select previous sentence" | Selects text in the active editor |
+   | "Go to end of document" | Moves cursor to the end of the editor |
+   | "Replace ancient with modern" | Replaces matching text in the editor |
    | "Save changes with summary fixed typo" | Saves with an edit summary |
    | "Undo" | Reverts the last voice edit |
 
@@ -238,8 +241,8 @@ anti-abuse layer keeps applying.
 
 ## Limitations
 
-- Editing commands currently target the wikitext editor (including
-  CodeMirror); VisualEditor support is planned
+- Editing commands support both the standard wikitext editor (including CodeMirror)
+  and VisualEditor surfaces
 - Voice input on Firefox requires configuring a speech-to-text endpoint
   (see Browser Support); wake-phrase listening is browser-engine only
 - Recognition quality depends on the speech engine used
