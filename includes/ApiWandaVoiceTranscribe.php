@@ -23,13 +23,20 @@ use Wikimedia\ParamValidator\ParamValidator;
  */
 class ApiWandaVoiceTranscribe extends ApiBase {
 
+	/** Default maximum audio size in bytes (2 MB). */
+	public const DEFAULT_MAX_AUDIO_BYTES = 2097152;
+
+	/** Hard cap on maximum audio size in bytes to prevent memory exhaustion (10 MB). */
+	public const HARD_MAX_AUDIO_BYTES = 10485760;
+
 	/** Accepted audio MIME types mapped to upload file extensions. */
 	private const MIME_EXTENSIONS = [
 		'audio/webm' => 'webm',
 		'audio/ogg' => 'ogg',
 		'audio/mp4' => 'mp4',
 		'audio/mpeg' => 'mp3',
-		'audio/wav' => 'wav'
+		'audio/wav' => 'wav',
+		'audio/x-wav' => 'wav'
 	];
 
 	public function execute() {
@@ -40,7 +47,12 @@ class ApiWandaVoiceTranscribe extends ApiBase {
 		}
 
 		$endpoint = (string)$config->get( 'WandaVoiceSTTEndpoint' );
-		if ( $endpoint === '' ) {
+		if ( $endpoint === '' || !filter_var( $endpoint, FILTER_VALIDATE_URL ) ) {
+			$this->dieWithError( 'wandavoice-api-error-stt-disabled', 'wandavoice-stt-disabled' );
+		}
+
+		$scheme = strtolower( (string)parse_url( $endpoint, PHP_URL_SCHEME ) );
+		if ( !in_array( $scheme, [ 'http', 'https' ], true ) ) {
 			$this->dieWithError( 'wandavoice-api-error-stt-disabled', 'wandavoice-stt-disabled' );
 		}
 
@@ -52,12 +64,16 @@ class ApiWandaVoiceTranscribe extends ApiBase {
 
 		$params = $this->extractRequestParams();
 
-		$mime = strtolower( trim( (string)$params['mimetype'] ) );
-		if ( !isset( self::MIME_EXTENSIONS[$mime] ) ) {
+		$rawMime = strtolower( trim( (string)$params['mimetype'] ) );
+		$baseMime = explode( ';', $rawMime )[0];
+		if ( !isset( self::MIME_EXTENSIONS[$baseMime] ) ) {
 			$this->dieWithError( 'wandavoice-api-error-stt-badaudio', 'wandavoice-stt-badaudio' );
 		}
 
-		$maxSize = (int)$config->get( 'WandaVoiceMaxAudioSize' );
+		$configuredMax = (int)$config->get( 'WandaVoiceMaxAudioSize' );
+		$maxSize = ( $configuredMax > 0 ) ? $configuredMax : self::DEFAULT_MAX_AUDIO_BYTES;
+		$maxSize = min( $maxSize, self::HARD_MAX_AUDIO_BYTES );
+
 		$audioB64 = (string)$params['audio'];
 		// Base64 expands data by 4/3; reject oversized payloads before decoding.
 		if ( strlen( $audioB64 ) > (int)ceil( $maxSize * 4 / 3 ) + 8 ) {
@@ -72,7 +88,7 @@ class ApiWandaVoiceTranscribe extends ApiBase {
 			$this->dieWithError( 'wandavoice-api-error-stt-toolarge', 'wandavoice-stt-toolarge' );
 		}
 
-		$text = $this->requestTranscription( $audio, $mime, (string)$params['lang'] );
+		$text = $this->requestTranscription( $endpoint, $audio, $baseMime, (string)$params['lang'] );
 		if ( $text === null ) {
 			$this->dieWithError( 'wandavoice-api-error-stt-failed', 'wandavoice-stt-failed' );
 		}
@@ -86,17 +102,20 @@ class ApiWandaVoiceTranscribe extends ApiBase {
 	/**
 	 * Forward the audio to the configured Whisper-compatible endpoint.
 	 *
+	 * @param string $endpoint Validated STT endpoint URL
 	 * @param string $audio Raw audio bytes
 	 * @param string $mime Whitelisted MIME type
 	 * @param string $lang BCP 47 tag of the voice input, if known
 	 * @return string|null Transcript text, or null on failure
 	 */
-	private function requestTranscription( string $audio, string $mime, string $lang ): ?string {
+	private function requestTranscription(
+		string $endpoint, string $audio, string $mime, string $lang
+	): ?string {
 		$config = $this->getConfig();
-		$endpoint = (string)$config->get( 'WandaVoiceSTTEndpoint' );
 		$apiKey = (string)$config->get( 'WandaVoiceSTTApiKey' );
 		$model = (string)$config->get( 'WandaVoiceSTTModel' );
-		$timeout = (int)$config->get( 'WandaVoiceSTTTimeout' );
+		$rawTimeout = (int)$config->get( 'WandaVoiceSTTTimeout' );
+		$timeout = max( 5, min( $rawTimeout ?: 15, 30 ) );
 
 		$fields = [
 			'model' => $model,
@@ -128,6 +147,7 @@ class ApiWandaVoiceTranscribe extends ApiBase {
 			[
 				'method' => 'POST',
 				'timeout' => $timeout,
+				'connectTimeout' => 5,
 				'postData' => $body
 			],
 			__METHOD__
@@ -160,8 +180,9 @@ class ApiWandaVoiceTranscribe extends ApiBase {
 	public function getAllowedParams() {
 		return [
 			'audio' => [
-				ParamValidator::PARAM_TYPE => 'string',
-				ParamValidator::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => 'text',
+				ParamValidator::PARAM_REQUIRED => true,
+				ParamValidator::PARAM_SENSITIVE => true
 			],
 			'mimetype' => [
 				ParamValidator::PARAM_TYPE => 'string',

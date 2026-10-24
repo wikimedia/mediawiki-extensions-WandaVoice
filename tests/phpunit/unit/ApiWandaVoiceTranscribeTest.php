@@ -36,8 +36,9 @@ class ApiWandaVoiceTranscribeTest extends MediaWikiUnitTestCase {
 
 		$this->assertSame( [
 			'audio' => [
-				ParamValidator::PARAM_TYPE => 'string',
-				ParamValidator::PARAM_REQUIRED => true
+				ParamValidator::PARAM_TYPE => 'text',
+				ParamValidator::PARAM_REQUIRED => true,
+				ParamValidator::PARAM_SENSITIVE => true
 			],
 			'mimetype' => [
 				ParamValidator::PARAM_TYPE => 'string',
@@ -58,8 +59,14 @@ class ApiWandaVoiceTranscribeTest extends MediaWikiUnitTestCase {
 			'audio/ogg' => 'ogg',
 			'audio/mp4' => 'mp4',
 			'audio/mpeg' => 'mp3',
-			'audio/wav' => 'wav'
+			'audio/wav' => 'wav',
+			'audio/x-wav' => 'wav'
 		], $mimeExtensions );
+	}
+
+	public function testAudioSizeConstants() {
+		$this->assertSame( 2097152, ApiWandaVoiceTranscribe::DEFAULT_MAX_AUDIO_BYTES );
+		$this->assertSame( 10485760, ApiWandaVoiceTranscribe::HARD_MAX_AUDIO_BYTES );
 	}
 
 	public function testGetExamplesMessages() {
